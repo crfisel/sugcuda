@@ -134,7 +134,7 @@ __global__ void count_occupancy_fs(short* psaX, short* psaY, int* pigGridBits, i
 	}
 	return;
 }
-
+/*
 int count(short* psaX, short* psaY, int* pigGridBits, int* pigResidents, int* piaQueueA, 
 	const int iQueueSize, int* piaQueueB, int* piDeferredQueueSize, int* piLockSuccesses)
 {
@@ -214,4 +214,4 @@ int count(short* psaX, short* psaY, int* pigGridBits, int* pigResidents, int* pi
 	free(piahTemp);
 
 	return status;
-}
+} */

@@ -37,7 +37,7 @@
 EXECUTABLE	:= sugarscape
 
 # Cuda source files (compiled with cudacc)
-CUFILES_sm_20	:= sugarscape.cu count.cu randoms.cu move.cu harvest.cu eat.cu age.cu die.cu #mate.cu
+CUFILES_sm_20	:= sugarscape.cu count.cu randoms.cu move.cu harvest.cu eat.cu age.cu die.cu exercise_locks.cu #mate.cu
 
 # C/C++ source files (compiled with gcc / c++)
 CCFILES     := rngs.c

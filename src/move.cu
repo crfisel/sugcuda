@@ -21,12 +21,7 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 		// if the agent is alive
 		if (psaX[iAgentID] > -1) {
 
-			// begin finding best move, searching around current (center) square
-			short sXCenter = psaX[iAgentID];
-			short sYCenter = psaY[iAgentID];
-			short2 s2Temp = find_best_move_by_traversal(sXCenter,sYCenter,piaAgentBits,pfaSugar,pfaSpice,pigGridBits,iAgentID);
-			short sXStore = s2Temp.x;
-			short sYStore = s2Temp.y;
+#include "traversal_routine.cu"
 
 			// if a move is warranted, lock old and new address - if either fails, defer
 			if (sXStore != sXCenter || sYStore != sYCenter) {
@@ -139,12 +134,8 @@ __global__ void best_move_by_traversal_fs(short* psaX, short* psaY, int* piaAgen
 			// if the agent is alive
 			if (psaX[iAgentID] > -1) {
 
-				// begin finding best move, searching around current (center) square
-				short sXCenter = psaX[iAgentID];
-				short sYCenter = psaY[iAgentID];
-				short2 s2Temp = find_best_move_by_traversal(sXCenter,sYCenter,piaAgentBits,pfaSugar,pfaSpice,pigGridBits,iAgentID);
-				short sXStore = s2Temp.x;
-				short sYStore = s2Temp.y;
+#include "traversal_routine.cu"
+
 				if (sXStore != sXCenter || sYStore != sYCenter) {
 
 					// if a move is warranted, go, no need to lock
@@ -182,7 +173,7 @@ __global__ void best_move_by_traversal_fs(short* psaX, short* psaY, int* piaAgen
 	}
 	return;
 }
-
+/*
 int move (short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, float* pfaSpice, int* pigGridBits, int* pigResidents, 
 	int* piaQueueA, const int iQueueSize, int* piaQueueB, int* piDeferredQueueSize, int* piLockSuccesses)
 {
@@ -264,4 +255,4 @@ int move (short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, float* p
 	free(piahTemp);
 
 	return status;
-}
+} */

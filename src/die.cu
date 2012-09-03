@@ -141,6 +141,7 @@ __global__ void register_deaths_fs(short* psaX, short* psaY, int* piaAgentBits, 
 	return;
 }
 
+/*
 int die(short* psaX, short* psaY, int* piaAgentBits, short* psaAge, float* pfaSugar, float* pfaSpice, int* pigGridBits, 
 		int* pigResidents, int* piaQueueA, const int iQueueSize, int* piaQueueB, int* piDeferredQueueSize, int* piLockSuccesses)
 {
@@ -222,4 +223,4 @@ int die(short* psaX, short* psaY, int* piaAgentBits, short* psaAge, float* pfaSu
 	free(piahTemp);
 
 	return status;
-} 
+} */

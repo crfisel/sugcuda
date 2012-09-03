@@ -11,14 +11,12 @@
 #include <limits.h>
 #include <curand_kernel.h>
 #include "symbolic_constants.h"
-#include "count.h"
 #include "rngs.h"
 #include "randoms.h"
-#include "move.h"
 #include "harvest.h"
 #include "eat.h"
 #include "age.h"
-#include "die.h"
+#include "exercise_locks.h"
 
 int main (int argc , char* argv [])
 {
@@ -152,8 +150,9 @@ int main (int argc , char* argv [])
 	cudaEventRecord(start,0);
 
 	// count occupancy and store residents
-	int status = count(psaX,psaY,pigGridBits,pigResidents,piaQueueA,hPopulation,
-		piaQueueB,piDeferredQueueSize,piLockSuccesses);
+
+	int status = exercise_locks(COUNT,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,psaAge,pigGridBits,
+		pigResidents,piaQueueA,hPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 
 	//   end timing
 	cudaThreadSynchronize();
@@ -167,8 +166,8 @@ int main (int argc , char* argv [])
 	cudaEventRecord(start,0);
 
 	// do movement
-	move(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pigGridBits,pigResidents,
-		piaQueueA,hPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+	status = exercise_locks(MOVE,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,psaAge,pigGridBits, 
+		pigResidents,piaQueueA,hPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 	cudaDeviceSynchronize();
 
 	//   end timing
@@ -200,8 +199,8 @@ int main (int argc , char* argv [])
 	// time dying
 	cudaEventRecord(start,0);
 
-	die(psaX,psaY,piaAgentBits,psaAge,pfaSugar,pfaSpice,pigGridBits,pigResidents,
-		piaQueueA,hPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+	status = exercise_locks(DIE,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,psaAge,pigGridBits, 
+		pigResidents,piaQueueA,hPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 
 	//   end timing
 	cudaThreadSynchronize();
