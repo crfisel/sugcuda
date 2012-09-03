@@ -1,12 +1,12 @@
 #include <cuda.h>
 #include <stdio.h>
 #include "symbolic_constants.h"
-#include "bitwisetype.h"
+#include "bitwise.h"
 #include "die.h"
 
 // this kernel has one thread per agent, each traversing the local neighborhood prescribed by its vision
 // NOTE: NUM_AGENTS is an int, GRID_SIZE is a short
-__global__ void register_deaths(short* psaX, short* psaY, BitWiseType* pbaBits, short* psaAge,
+__global__ void register_deaths(short* psaX, short* psaY, int* piaBits, short* psaAge,
 		float* pfaSugar, float* pfaSpice, short* psgOccupancy, int* pigResidents,
 		int* pigLocks, int* piaActiveQueue, const int ciActiveQueueSize,
 		int* piaDeferredQueue, int* piDeferredQueueSize, int* piLockSuccesses)
@@ -25,10 +25,13 @@ __global__ void register_deaths(short* psaX, short* psaY, BitWiseType* pbaBits, 
 		if (psaX[iAgentID] > -1) {
 
 			// check for death by old age
-			if ((psaAge[iAgentID] > 60+2*((&pbaBits[iAgentID])->deathAge)) ||
+			// reinterpret piaBits bitwise for death age
+			BitWise bwLocalBits;
+			bwLocalBits.asInt = piaBits[iAgentID];
+			if ((psaAge[iAgentID] > 64+(bwLocalBits.asBits.deathAge)) ||
 					// check for starvation
 					(pfaSpice[iAgentID] < 0.0f) || (pfaSpice[iAgentID] < 0.0f)) {
-				//printf("age %d death age %d sugar %f spice %f\n",psaAge[iAgentID],60+2*((&pbaBits[iAgentID])->deathAge),pfaSugar[iAgentID],pfaSpice[iAgentID]);
+				//printf("age %d death age %d sugar %f spice %f\n",psaAge[iAgentID],60+2*((&piaBits[iAgentID])->deathAge),pfaSugar[iAgentID],pfaSpice[iAgentID]);
 				// lock address to register death - if lock fails, defer
 
 				// current agent's address in the grid
@@ -73,7 +76,7 @@ __global__ void register_deaths(short* psaX, short* psaY, BitWiseType* pbaBits, 
 
 // this "failsafe" kernel has one thread, for persistent lock failures
 // NOTE: NUM_AGENTS is an int, GRID_SIZE is a short
-__global__ void register_deaths_fs(short* psaX, short* psaY, BitWiseType* pbaBits, short* psaAge,
+__global__ void register_deaths_fs(short* psaX, short* psaY, int* piaBits, short* psaAge,
 		float* pfaSugar, float* pfaSpice, short* psgOccupancy, int* pigResidents, int* piaActiveQueue,
 		const int ciActiveQueueSize)
 {
@@ -92,7 +95,10 @@ __global__ void register_deaths_fs(short* psaX, short* psaY, BitWiseType* pbaBit
 			if (psaX[iAgentID] > -1) {
 
 				// check for death by old age
-				if ((psaAge[iAgentID] > 60+2*((&pbaBits[iAgentID])->deathAge)) ||
+				// reinterpret piaBits bitwise for death age
+				BitWise bwLocalBits;
+				bwLocalBits.asInt = piaBits[iAgentID];
+				if ((psaAge[iAgentID] > 64+(bwLocalBits.asBits.deathAge)) ||
 						// check for starvation
 						(pfaSpice[iAgentID] < 0.0f) || (pfaSpice[iAgentID] < 0.0f)) {
 					//printf("age %d sugar %f spice %f\n",psaAge[iAgentID],pfaSugar[iAgentID],pfaSpice[iAgentID]);
@@ -125,7 +131,7 @@ __global__ void register_deaths_fs(short* psaX, short* psaY, BitWiseType* pbaBit
 	return;
 }
 
-int die(short* psaX, short* psaY, BitWiseType* pbaBits, short* psaAge, float* pfaSugar, float* pfaSpice, short* psgOccupancy, 
+int die(short* psaX, short* psaY, int* piaBits, short* psaAge, float* pfaSugar, float* pfaSpice, short* psgOccupancy, 
 		int* pigResidents, int* pigLocks, int* piaQueueA, const int iQueueSize, int* piaQueueB, int* piDeferredQueueSize,
 		int* piLockSuccesses)
 {
@@ -150,7 +156,7 @@ int die(short* psaX, short* psaY, BitWiseType* pbaBits, short* psaAge, float* pf
 
 	// find best move for agents at the head of their square's resident list
 	int hiNumBlocks = (iQueueSize+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
-	register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,pbaBits,psaAge,pfaSugar,pfaSpice,
+	register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaBits,psaAge,pfaSugar,pfaSpice,
 			psgOccupancy,pigResidents,pigLocks,piaQueueA,iQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 	cudaDeviceSynchronize();
 
@@ -173,12 +179,12 @@ int die(short* psaX, short* psaY, BitWiseType* pbaBits, short* psaAge, float* pf
 		CUDA_CALL(cudaMemset(piLockSuccesses,0,sizeof(int)));
 		if (hQueue) {
 			CUDA_CALL(cudaMemset(piaQueueA,0xFF,iQueueSize*sizeof(int)));
-			register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,pbaBits,psaAge,pfaSugar,pfaSpice,
+			register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaBits,psaAge,pfaSugar,pfaSpice,
 					psgOccupancy,pigResidents,pigLocks,piaQueueB,ihActiveQueueSize,piaQueueA,piDeferredQueueSize,piLockSuccesses);
 
 		} else {
 			CUDA_CALL(cudaMemset(piaQueueB,0xFF,iQueueSize*sizeof(int)));
-			register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,pbaBits,psaAge,pfaSugar,pfaSpice,
+			register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaBits,psaAge,pfaSugar,pfaSpice,
 					psgOccupancy,pigResidents,pigLocks,piaQueueA,ihActiveQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 		}
 		cudaDeviceSynchronize();
@@ -191,11 +197,11 @@ int die(short* psaX, short* psaY, BitWiseType* pbaBits, short* psaAge, float* pf
 	if (pihDeferredQueueSize[0] <= 10 || pihDeferredQueueSize[0] >= ihActiveQueueSize) {
 		ihActiveQueueSize = pihDeferredQueueSize[0];
 		if (hQueue) {
-			register_deaths_fs<<<1,1>>>(psaX,psaY,pbaBits,psaAge,pfaSugar,pfaSpice,
+			register_deaths_fs<<<1,1>>>(psaX,psaY,piaBits,psaAge,pfaSugar,pfaSpice,
 					psgOccupancy,pigResidents,piaQueueB,ihActiveQueueSize);
 
 		} else {
-			register_deaths_fs<<<1,1>>>(psaX,psaY,pbaBits,psaAge,pfaSugar,pfaSpice,
+			register_deaths_fs<<<1,1>>>(psaX,psaY,piaBits,psaAge,pfaSugar,pfaSpice,
 					psgOccupancy,pigResidents,piaQueueA,ihActiveQueueSize);
 		}
 		cudaDeviceSynchronize();

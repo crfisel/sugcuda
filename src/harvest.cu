@@ -10,11 +10,10 @@
 #include <cuda.h>
 #include <curand_kernel.h>
 #include "symbolic_constants.h"
-#include "bitwisetype.h"
 #include "randoms.h"
 #include "harvest.h"
 
-__global__ void harvest(curandState* devGridStates, short* psaX, BitWiseType* pbaBits, float* pfaSugar, float* pfaSpice,
+__global__ void harvest(curandStateXORWOW_t* devGridStates, short* psaX, float* pfaSugar, float* pfaSpice,
 		short* psgSugar, short* psgSpice, short* psgOccupancy, int* pigResidents)
 {
 	short sX = blockIdx.x;
@@ -37,7 +36,7 @@ __global__ void harvest(curandState* devGridStates, short* psaX, BitWiseType* pb
 		}
 		break;
 	default:
-		curandState localState = devGridStates[iAddy];
+		curandStateXORWOW_t localState = devGridStates[iAddy];
 		iOffset = curand_uniform(&localState)*psgOccupancy[iAddy];
 		devGridStates[iAddy] = localState;
 		iAgentID = pigResidents[iAddy*MAX_OCCUPANCY+iOffset];

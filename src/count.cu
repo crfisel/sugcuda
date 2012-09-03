@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <cuda.h>
 #include "symbolic_constants.h"
-#include "bitwisetype.h"
 #include "count.h"
 
 __global__ void count_occupancy(short* psaX, short* psaY, short* psgOccupancy, int* pigResidents, int* pigLocks, 
@@ -13,7 +12,6 @@ __global__ void count_occupancy(short* psaX, short* psaY, short* psgOccupancy, i
 	int iAddy;
 	int iTemp;
 	short sOldOcc;
-
 
 	// get the iAgentID from the active agent queue
 	int iOffset = threadIdx.x + blockIdx.x*blockDim.x;
@@ -37,22 +35,18 @@ __global__ void count_occupancy(short* psaX, short* psaY, short* psgOccupancy, i
 				// check for overflow
 				if (sOldOcc < MAX_OCCUPANCY) {
 
-					// insert the resident at the next position in the pigResidents list
+					// insert the resident at the next position in the residents list
 					pigResidents[iAddy*MAX_OCCUPANCY+sOldOcc] = iAgentID;
-
+					
 				} else {
-
-					// indicate an occupancy overflow
+					// indicate an occupancy overflow, and do nothing to the residents list
 					printf ("overflow at x:%d y:%d \n",psaX[iAgentID], psaY[iAgentID]);
-					psgOccupancy[iAddy] = MAX_OCCUPANCY+1;
 				}
 
 				// unlock the square
 				iTemp = atomicExch(&(pigLocks[iAddy]),0);
-			}
-			else {
-
-				// otherwise, add the agent to the deferred queue
+			} else {
+				// if lock failed, add the agent to the deferred queue
 				iTemp = atomicAdd(piDeferredQueueSize,1);
 				piaDeferredQueue[iTemp]=iAgentID;
 			}
@@ -73,13 +67,11 @@ __global__ void count_occupancy_fs(short* psaX, short* psaY, short* psgOccupancy
 	if (threadIdx.x == 0 && blockIdx.x == 0) {
 		// iterate through the active queue
 		for (int iOffset = 0; iOffset < ciActiveQueueSize; iOffset++) {
-
 			// get agent id
 			iAgentID = piaActiveQueue[iOffset];
 
 			// work with live agents only
 			if (psaX[iAgentID] > -1) {
-
 				// current agent's address in the grid
 				iAddy = psaX[iAgentID]*GRID_SIZE+psaY[iAgentID];
 
@@ -88,17 +80,12 @@ __global__ void count_occupancy_fs(short* psaX, short* psaY, short* psgOccupancy
 
 				// check for overflow
 				if (sOldOcc < MAX_OCCUPANCY) {
-
-					// insert the resident at the next position in the pigResidents list
+					// insert the resident at the next position in the residents list
 					pigResidents[iAddy*MAX_OCCUPANCY+sOldOcc] = iAgentID;
-
 				} else {
-
-					// indicate an occupancy overflow
+					// indicate an occupancy overflow and do nothing to residents list
 					printf ("overflow at x:%d y:%d \n",psaX[iAgentID], psaY[iAgentID]);
-					psgOccupancy[iAddy] = MAX_OCCUPANCY+1;
 				}
-
 			}
 		}
 	}
@@ -111,7 +98,7 @@ int count(short* psaX, short* psaY, short* psgOccupancy, int* pigResidents, int*
 	int status = EXIT_SUCCESS;
 
 
-	// fill the agent queue with increasing (later random) id's
+	// fill the agent queue with increasing id's
 	int* piahTemp = (int*) malloc(iQueueSize*sizeof(int));
 	for (int i = 0; i < iQueueSize; i++) {
 		//		piahTemp[i] = rand() % iQueueSize;
@@ -145,7 +132,7 @@ int count(short* psaX, short* psaY, short* psgOccupancy, int* pigResidents, int*
 	// handle the deferred queue until it is empty
 	int ihActiveQueueSize = iQueueSize;
 	bool hQueue = true;
-	while (pihDeferredQueueSize[0] > 100 && pihDeferredQueueSize[0] < ihActiveQueueSize) {
+	while (pihDeferredQueueSize[0] > (0.01f*iQueueSize) && pihDeferredQueueSize[0] < ihActiveQueueSize) {
 		ihActiveQueueSize = pihDeferredQueueSize[0];
 		hiNumBlocks = (ihActiveQueueSize+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
 		CUDA_CALL(cudaMemset(piDeferredQueueSize,0,sizeof(int)));

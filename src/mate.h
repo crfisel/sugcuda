@@ -8,8 +8,6 @@
 #ifndef MATE_H_
 #define MATE_H_
 
-__device__ bool isOppositeSex(int , int , BitWiseType* );
-
-__device__ bool isFertile(int , BitWiseType* , short* , short* , short* , float* , float* , float* , float* );
+__device__ bool isFertile(int , BitWiseType* , short* );
 
 #endif /* MATE_H_ */

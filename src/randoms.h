@@ -8,14 +8,12 @@
 #ifndef RANDOMS_H_
 #define RANDOMS_H_
 
-__global__ void setup_kernel(curandState* );
+__global__ void setup_kernel(curandStateXORWOW_t* );
 
-__global__ void generate_floats(curandState* , float* , float );
+__global__ void generate_floats(curandStateXORWOW_t* , float* , float );
 
-__global__ void generate_ints(curandState* , int* , int );
+__global__ void generate_ints(curandStateXORWOW_t* , int* , int );
 
-__global__ void generate_shorts(curandState* , short* , short );
-
-__global__ void generate_bits(curandState* , BitWiseType* );
+__global__ void generate_shorts(curandStateXORWOW_t* , short* , short );
 
 #endif //RANDOMS_H

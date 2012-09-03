@@ -8,9 +8,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda.h>
+#include <limits.h>
 #include <curand_kernel.h>
 #include "symbolic_constants.h"
-#include "bitwisetype.h"
 #include "count.h"
 #include "randoms.h"
 #include "move.h"
@@ -21,15 +21,15 @@
 
 int main (int argc , char* argv [])
 {
-	curandState* devAgentStates = 0;
-	curandState* devGridStates = 0;
+	curandStateXORWOW_t* devAgentStates = 0;
+	curandStateXORWOW_t* devGridStates = 0;
 
 	// use the GTX470
 	cudaSetDevice(0);
 
 	// Allocate and set up prng states on device
-	CUDA_CALL(cudaMalloc((void**)&devAgentStates,NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK*sizeof(curandState)));
-	CUDA_CALL(cudaMalloc((void**)&devGridStates,GRID_SIZE*GRID_SIZE*sizeof(curandState)));
+	CUDA_CALL(cudaMalloc((void**)&devAgentStates,NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK*sizeof(curandStateXORWOW_t)));
+	CUDA_CALL(cudaMalloc((void**)&devGridStates,GRID_SIZE*GRID_SIZE*sizeof(curandStateXORWOW_t)));
 	setup_kernel<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(devAgentStates);
 	setup_kernel<<<GRID_SIZE,GRID_SIZE>>>(devGridStates);
 
@@ -45,8 +45,8 @@ int main (int argc , char* argv [])
 	CUDA_CALL(cudaMalloc((void**)&psaY,hPopulation*sizeof(short)));
 
 	// bit storage
-	BitWiseType* pbaBits;
-	CUDA_CALL(cudaMalloc((void**)&pbaBits,hPopulation*sizeof(BitWiseType)));
+	int* piaBits;
+	CUDA_CALL(cudaMalloc((void**)&piaBits,hPopulation*sizeof(int)));
 
 	// sugar holdings
 	float* pfaSugar;
@@ -72,8 +72,8 @@ int main (int argc , char* argv [])
 					devAgentStates,&(psaX[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),(GRID_SIZE-1));
 			generate_shorts<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
 					devAgentStates,&(psaY[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),(GRID_SIZE-1));
-			generate_bits<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
-					devAgentStates,&(pbaBits[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]));
+			generate_ints<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
+					devAgentStates,&(piaBits[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),INT_MAX);
 			generate_floats<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
 					devAgentStates,&(pfaSugar[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),4.0f);
 			generate_floats<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
@@ -84,17 +84,10 @@ int main (int argc , char* argv [])
 	} else {
 		generate_shorts<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,psaX,GRID_SIZE-1);
 		generate_shorts<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,psaY,GRID_SIZE-1);
-		generate_bits<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,pbaBits);
+		generate_ints<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,piaBits,INT_MAX);
 		generate_floats<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,pfaSugar,4.0f);
 		generate_floats<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,pfaSpice,4.0f);
 		generate_shorts<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,psaAge,100);
-	}
-
-	// test values
-	short* psahTemp = (short*) malloc(hPopulation*sizeof(short));
-	CUDA_CALL(cudaMemcpy(psahTemp,psaY,hPopulation*sizeof(short),cudaMemcpyDeviceToHost));
-	for (int k = 0; k < hPopulation; k++) {
-//		printf("y:%d\n",psahTemp[k]);
 	}
 
 	// initial sugar holdings
@@ -118,7 +111,6 @@ int main (int argc , char* argv [])
 
 	generate_shorts<<<GRID_SIZE,GRID_SIZE>>>(devGridStates,psgSugar,4);
 	generate_shorts<<<GRID_SIZE,GRID_SIZE>>>(devGridStates,psgSpice,4);
-
 
 	// occupancy of square - initially zero
 	short* psgOccupancy;
@@ -163,7 +155,7 @@ int main (int argc , char* argv [])
 
 	// count occupancy and store residents
 	int status = count(psaX,psaY,psgOccupancy,pigResidents,pigLocks,piaQueueA,hPopulation,
-			piaQueueB,piDeferredQueueSize,piLockSuccesses);
+		piaQueueB,piDeferredQueueSize,piLockSuccesses);
 
 	//   end timing
 	cudaThreadSynchronize();
@@ -177,8 +169,8 @@ int main (int argc , char* argv [])
 	cudaEventRecord(start,0);
 
 	// do movement
-	move(psaX,psaY,pbaBits,pfaSugar,pfaSpice,psgSugar,psgSpice,psgOccupancy,pigResidents,
-			pigLocks,piaQueueA,hPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+	move(psaX,psaY,piaBits,pfaSugar,pfaSpice,psgSugar,psgSpice,psgOccupancy,pigResidents,
+		pigLocks,piaQueueA,hPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 	cudaDeviceSynchronize();
 
 	//   end timing
@@ -192,7 +184,7 @@ int main (int argc , char* argv [])
 	// time harvest
 	cudaEventRecord(start,0);
 
-	harvest<<<GRID_SIZE,GRID_SIZE>>>(devGridStates,psaX,pbaBits,pfaSugar,pfaSpice,psgSugar,psgSpice,
+	harvest<<<GRID_SIZE,GRID_SIZE>>>(devGridStates,psaX,pfaSugar,pfaSpice,psgSugar,psgSpice,
 			psgOccupancy,pigResidents);
 
 	//   end timing
@@ -206,7 +198,7 @@ int main (int argc , char* argv [])
 	// time meal
 	cudaEventRecord(start,0);
 
-	eat<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,pbaBits,pfaSugar,pfaSpice);
+	eat<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,piaBits,pfaSugar,pfaSpice);
 
 	//   end timing
 	cudaThreadSynchronize();
@@ -227,12 +219,13 @@ int main (int argc , char* argv [])
 	cudaEventRecord(end,0);
 	cudaEventSynchronize(end);
 	cudaEventElapsedTime(&elapsed_time, start, end);
+
 	printf ("Aging %d agents takes %d milliseconds\n",(int) hPopulation, (int) elapsed_time);
 
 	// time dying
 	cudaEventRecord(start,0);
 
-	die(psaX,psaY,pbaBits,psaAge,pfaSugar,pfaSpice,psgOccupancy, 
+	die(psaX,psaY,piaBits,psaAge,pfaSugar,pfaSpice,psgOccupancy, 
 			pigResidents,pigLocks,piaQueueA,hPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 
 	//   end timing
@@ -246,23 +239,22 @@ int main (int argc , char* argv [])
 	// Cleanup 
 	CUDA_CALL(cudaFree(psaX));
 	CUDA_CALL(cudaFree(psaY));
-	CUDA_CALL(cudaFree(pbaBits));
+	CUDA_CALL(cudaFree(piaBits));
 	CUDA_CALL(cudaFree(pfaSugar));
 	CUDA_CALL(cudaFree(pfaSpice));
+	CUDA_CALL(cudaFree(psaAge));
 	CUDA_CALL(cudaFree(pfaInitialSugar));
 	CUDA_CALL(cudaFree(pfaInitialSpice));
-	CUDA_CALL(cudaFree(psaAge));
-	CUDA_CALL(cudaFree(pigLocks));
 	CUDA_CALL(cudaFree(psgSugar));
 	CUDA_CALL(cudaFree(psgSpice));
 	CUDA_CALL(cudaFree(psgOccupancy));
 	CUDA_CALL(cudaFree(pigResidents));
+	CUDA_CALL(cudaFree(pigLocks));
 	CUDA_CALL(cudaFree(piaQueueA));
 	CUDA_CALL(cudaFree(piaQueueB));
 	CUDA_CALL(cudaFree(piDeferredQueueSize));
 	CUDA_CALL(cudaFree(piLockSuccesses));
 	CUDA_CALL(cudaFree(devAgentStates));
 	CUDA_CALL(cudaFree(devGridStates));
-	free(psahTemp);
 	return EXIT_SUCCESS ;
 }

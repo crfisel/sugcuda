@@ -12,7 +12,7 @@
 #define NUM_THREADS_PER_BLOCK 1024
 #define GRID_SIZE 1024
 #define NUM_AGENTS 2097152
-#define MAX_OCCUPANCY 36
+#define MAX_OCCUPANCY 24
 
 // error conditions
 #define EXIT_SUCCESS 0

@@ -1,12 +1,12 @@
 #include <cuda.h>
 #include <stdio.h>
 #include "symbolic_constants.h"
-#include "bitwisetype.h"
+#include "bitwise.h"
 #include "move.h"
 
 // this kernel has one thread per agent, each traversing the local neighborhood prescribed by its vision
 // NOTE: NUM_AGENTS is an int, GRID_SIZE is a short
-__global__ void best_move_by_traversal(short* psaX, short* psaY, BitWiseType* pbaBits, 
+__global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaBits, 
 		float* pfaSugar, float* pfaSpice, short* psgSugar, short* psgSpice,
 		short* psgOccupancy, int* pigResidents, int* pigLocks, int* piaActiveQueue,
 		const int ciActiveQueueSize, int* piaDeferredQueue, int* piDeferredQueueSize,
@@ -25,24 +25,30 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, BitWiseType* pb
 
 		// work with live agents only
 		if (psaX[iAgentID] > -1) {
-
 			// begin finding best move, searching around current (center) square
 			short sXCenter = psaX[iAgentID];
 			short sYCenter = psaY[iAgentID];
 			short sXStore = sXCenter;
 			short sYStore = sYCenter;
+			if (psgOccupancy[sXCenter*GRID_SIZE+sYCenter]< 1) {
+				printf("occupancy %d at x:%d y:%d, agent %d\n",psgOccupancy[sXCenter*GRID_SIZE+sYCenter],sXCenter,sYCenter,iAgentID);
+			}
+			
+			// reinterpret piaBits[iAgentID] bitwise
+			BitWise bwLocalBits;
+			bwLocalBits.asInt = piaBits[iAgentID];
 
 			// scale values by agent's current sugar and spice levels,
 			// converting to a duration using metabolic rates
 			// add .01 to current values to avoid div by zero
-			float sugarScale = 1.0f/(pfaSugar[iAgentID]+0.01f)/((&pbaBits[iAgentID])->metSugar+1);
-			float spiceScale = 1.0f/(pfaSpice[iAgentID]+0.01f)/((&pbaBits[iAgentID])->metSpice+1);
+			float sugarScale = 1.0f/(pfaSugar[iAgentID]+0.01f)/(bwLocalBits.asBits.metSugar+1);
+			float spiceScale = 1.0f/(pfaSpice[iAgentID]+0.01f)/(bwLocalBits.asBits.metSpice+1);
 
 			// search limits based on vision
-			short sXMin = sXCenter-(&pbaBits[iAgentID])->vision-1;
-			short sXMax = sXCenter+(&pbaBits[iAgentID])->vision+1;
-			short sYMin = sYCenter-(&pbaBits[iAgentID])->vision-1;
-			short sYMax = sYCenter+(&pbaBits[iAgentID])->vision+1;
+			short sXMin = sXCenter-bwLocalBits.asBits.vision-1;
+			short sXMax = sXCenter+bwLocalBits.asBits.vision+1;
+			short sYMin = sYCenter-bwLocalBits.asBits.vision-1;
+			short sYMax = sYCenter+bwLocalBits.asBits.vision+1;
 
 			// calculate the value of the current square,
 			// weighting its sugar and spice by need, metabolism, and occupancy
@@ -91,8 +97,8 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, BitWiseType* pb
 				// agent's new address in the grid
 				int iNewAddy = sXStore*GRID_SIZE+sYStore;
 				iLockedNew = atomicCAS(&(pigLocks[iNewAddy]), 0, 1);
-				// printf("old %d:%d new %d:%d\n",sXCenter,sYCenter,sXStore,sYStore);
 
+				// test if the locks were both successful
 				if (iLockedOld == 0 && iLockedNew == 0) {
 					iFlag = atomicAdd(piLockSuccesses,1);
 
@@ -102,7 +108,7 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, BitWiseType* pb
 
 						// find match starting at end of list
 						short k = sOldOcc;
-						while (pigResidents[iOldAddy*MAX_OCCUPANCY+k] != iAgentID && k > 0) {k--;} //PROBLEM HERE!!!!
+						while (pigResidents[iOldAddy*MAX_OCCUPANCY+k] != iAgentID && k > 0) {k--;} 
 
 						// remove current id - if it is not at the end, replace it with the one from the end
 						if (k != sOldOcc) atomicExch(&(pigResidents[iOldAddy*MAX_OCCUPANCY+k]),
@@ -144,7 +150,7 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, BitWiseType* pb
 
 // this "failsafe" kernel has one thread, for persistent lock failures
 // NOTE: NUM_AGENTS is an int, GRID_SIZE is a short
-__global__ void best_move_by_traversal_fs(short* psaX, short* psaY, BitWiseType* pbaBits,
+__global__ void best_move_by_traversal_fs(short* psaX, short* psaY, int* piaBits,
 		float* pfaSugar, float* pfaSpice, short* psgSugar, short* psgSpice,
 		short* psgOccupancy, int* pigResidents, int* piaActiveQueue, const int ciActiveQueueSize)
 {
@@ -168,17 +174,21 @@ __global__ void best_move_by_traversal_fs(short* psaX, short* psaY, BitWiseType*
 				short sXStore = sXCenter;
 				short sYStore = sYCenter;
 
+				// reinterpret piaBits[iAgentID] bitwise
+				BitWise bwLocalBits;
+				bwLocalBits.asInt = piaBits[iAgentID];
+
 				// scale values by agent's current sugar and spice levels,
 				// converting to a duration using metabolic rates
 				// add .01 to current values to avoid div by zero
-				float sugarScale = 1.0f/(pfaSugar[iAgentID]+0.01f)/((&pbaBits[iAgentID])->metSugar+1);
-				float spiceScale = 1.0f/(pfaSpice[iAgentID]+0.01f)/((&pbaBits[iAgentID])->metSpice+1);
+				float sugarScale = 1.0f/(pfaSugar[iAgentID]+0.01f)/(bwLocalBits.asBits.metSugar+1);
+				float spiceScale = 1.0f/(pfaSpice[iAgentID]+0.01f)/(bwLocalBits.asBits.metSpice+1);
 
 				// search limits based on vision
-				short sXMin = sXCenter-(&pbaBits[iAgentID])->vision-1;
-				short sXMax = sXCenter+(&pbaBits[iAgentID])->vision+1;
-				short sYMin = sYCenter-(&pbaBits[iAgentID])->vision-1;
-				short sYMax = sYCenter+(&pbaBits[iAgentID])->vision+1;
+				short sXMin = sXCenter-bwLocalBits.asBits.vision-1;
+				short sXMax = sXCenter+bwLocalBits.asBits.vision+1;
+				short sYMin = sYCenter-bwLocalBits.asBits.vision-1;
+				short sYMax = sYCenter+bwLocalBits.asBits.vision+1;
 
 				// calculate the value of the current square,
 				// weighting its sugar and spice by need, metabolism, and occupancy
@@ -262,7 +272,7 @@ __global__ void best_move_by_traversal_fs(short* psaX, short* psaY, BitWiseType*
 	return;
 }
 
-int move (short* psaX, short* psaY, BitWiseType* pbaBits, float* pfaSugar, float* pfaSpice, short* psgSugar, short* psgSpice, short* psgOccupancy, 
+int move (short* psaX, short* psaY, int* piaBits, float* pfaSugar, float* pfaSpice, short* psgSugar, short* psgSpice, short* psgOccupancy, 
 		int* pigResidents, int* pigLocks, int* piaQueueA, const int iQueueSize, int* piaQueueB, int* piDeferredQueueSize, int* piLockSuccesses)
 {
 	int status = EXIT_SUCCESS;
@@ -286,7 +296,7 @@ int move (short* psaX, short* psaY, BitWiseType* pbaBits, float* pfaSugar, float
 
 	// find best move for agents at the head of their square's resident list
 	int hiNumBlocks = (iQueueSize+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
-	best_move_by_traversal<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,pbaBits,pfaSugar,pfaSpice,psgSugar,psgSpice,
+	best_move_by_traversal<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaBits,pfaSugar,pfaSpice,psgSugar,psgSpice,
 			psgOccupancy,pigResidents,pigLocks,piaQueueA,iQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 	cudaDeviceSynchronize();
 
@@ -309,12 +319,12 @@ int move (short* psaX, short* psaY, BitWiseType* pbaBits, float* pfaSugar, float
 		CUDA_CALL(cudaMemset(piLockSuccesses,0,sizeof(int)));
 		if (hQueue) {
 			CUDA_CALL(cudaMemset(piaQueueA,0xFF,iQueueSize*sizeof(int)));
-			best_move_by_traversal<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,pbaBits,pfaSugar,pfaSpice,psgSugar,psgSpice,
+			best_move_by_traversal<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaBits,pfaSugar,pfaSpice,psgSugar,psgSpice,
 					psgOccupancy,pigResidents,pigLocks,piaQueueB,ihActiveQueueSize,piaQueueA,piDeferredQueueSize,piLockSuccesses);
 
 		} else {
 			CUDA_CALL(cudaMemset(piaQueueB,0xFF,iQueueSize*sizeof(int)));
-			best_move_by_traversal<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,pbaBits,pfaSugar,pfaSpice,psgSugar,psgSpice,
+			best_move_by_traversal<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaBits,pfaSugar,pfaSpice,psgSugar,psgSpice,
 					psgOccupancy,pigResidents,pigLocks,piaQueueA,ihActiveQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 		}
 		cudaDeviceSynchronize();
@@ -327,11 +337,11 @@ int move (short* psaX, short* psaY, BitWiseType* pbaBits, float* pfaSugar, float
 	if (pihDeferredQueueSize[0] <= 10 || pihDeferredQueueSize[0] >= ihActiveQueueSize) {
 		ihActiveQueueSize = pihDeferredQueueSize[0];
 		if (hQueue) {
-			best_move_by_traversal_fs<<<1,1>>>(psaX,psaY,pbaBits,pfaSugar,pfaSpice,psgSugar,psgSpice,
+			best_move_by_traversal_fs<<<1,1>>>(psaX,psaY,piaBits,pfaSugar,pfaSpice,psgSugar,psgSpice,
 					psgOccupancy,pigResidents,piaQueueB,ihActiveQueueSize);
 
 		} else {
-			best_move_by_traversal_fs<<<1,1>>>(psaX,psaY,pbaBits,pfaSugar,pfaSpice,psgSugar,psgSpice,
+			best_move_by_traversal_fs<<<1,1>>>(psaX,psaY,piaBits,pfaSugar,pfaSpice,psgSugar,psgSpice,
 					psgOccupancy,pigResidents,piaQueueA,ihActiveQueueSize);
 		}
 		cudaDeviceSynchronize();
