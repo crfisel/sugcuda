@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include "symbolic_constants.h"
 #include "bitwise.h"
+#include "move.h"
 #include "die.h"
 
 // this kernel has one thread per agent
@@ -25,7 +26,6 @@ __global__ void register_deaths(short* psaX, short* psaY, int* piaAgentBits, sho
 			abwBits.asInt = piaAgentBits[iAgentID];
 
 			if ((psaAge[iAgentID] > 64+abwBits.asBits.deathAge) || (pfaSpice[iAgentID] < 0.0f) || (pfaSpice[iAgentID] < 0.0f)) {
-//				printf("death %d at %d:%d\n",iAgentID,psaX[iAgentID],psaY[iAgentID]);
 
 				// lock address to register death - if lock fails, defer
 				// current agent's address in the grid
@@ -67,20 +67,8 @@ __global__ void register_deaths(short* psaX, short* psaY, int* piaAgentBits, sho
 								gbwBitsCopy.asBits.occupancy,psaX[iAgentID],psaY[iAgentID],iAgentID,pigResidents[iAddy*MAX_OCCUPANCY]);
 
 						} else {
-							// find match starting at end of list
-							short k = --gbwBitsCopy.asBits.occupancy;
+							remove_resident(&(gbwBitsCopy.asInt),iAddy,pigResidents,iAgentID);
 
-							// remove current id - if not at the end, replace it with the one from the end and store -1 at end
-							if (pigResidents[iAddy*MAX_OCCUPANCY+k] == iAgentID) {
-								pigResidents[iAddy*MAX_OCCUPANCY+k] = -1;
-
-							} else {
-								while (pigResidents[iAddy*MAX_OCCUPANCY+k] != iAgentID && k >= 0) {k--;}
-								if (k != gbwBitsCopy.asBits.occupancy) {
-									pigResidents[iAddy*MAX_OCCUPANCY+k] = pigResidents[iAddy*MAX_OCCUPANCY+gbwBitsCopy.asBits.occupancy];
-									pigResidents[iAddy*MAX_OCCUPANCY+gbwBitsCopy.asBits.occupancy] = -1;
-								}
-							}
 							// mark agent as dead
 							psaX[iAgentID] *= -1;
 							
@@ -126,8 +114,7 @@ __global__ void register_deaths_fs(short* psaX, short* psaY, int* piaAgentBits, 
 					
 					// current agent's address in the grid
 					int iAddy = psaX[iAgentID]*GRID_SIZE+psaY[iAgentID];
-					printf("death %d at %d:%d\n",iAgentID,psaX[iAgentID],psaY[iAgentID]);
-
+					
 					// unpack grid bits
 					GridBitWise gbwBits;
 					gbwBits.asInt = pigGridBits[iAddy];
@@ -138,21 +125,9 @@ __global__ void register_deaths_fs(short* psaX, short* psaY, int* piaAgentBits, 
 						// if invalid, indicate an error
 						printf("under occ %d at x:%d y:%d agent %d\n",gbwBits.asBits.occupancy,psaX[iAgentID],psaY[iAgentID],iAgentID);
 
-					} else {									
-						// find match starting at end of list
-						short k = --gbwBits.asBits.occupancy;
+					} else {
+						remove_resident(&(gbwBits.asInt),iAddy,pigResidents,iAgentID);
 
-						// remove current id - if not at the end, replace it with the one from the end and store -1 at end
-						if (pigResidents[iAddy*MAX_OCCUPANCY+k] == iAgentID) {
-							pigResidents[iAddy*MAX_OCCUPANCY+k] = -1;
-
-						} else {
-							while (pigResidents[iAddy*MAX_OCCUPANCY+k] != iAgentID && k >= 0) {k--;}
-							if (k != gbwBits.asBits.occupancy) {
-								pigResidents[iAddy*MAX_OCCUPANCY+k] = pigResidents[iAddy*MAX_OCCUPANCY+gbwBits.asBits.occupancy];
-								pigResidents[iAddy*MAX_OCCUPANCY+gbwBits.asBits.occupancy] = -1;
-							}
-						}
 						// mark agent as dead
 						psaX[iAgentID] *= -1;
 								
