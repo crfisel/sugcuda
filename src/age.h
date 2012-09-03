@@ -8,6 +8,6 @@
 #ifndef AGE_H_
 #define AGE_H_
 
-__global__ void age(short* );
+__global__ void age(int* );
 
 #endif /* AGE_H_ */

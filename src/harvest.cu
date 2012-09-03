@@ -14,7 +14,7 @@
 #include "randoms.h"
 #include "harvest.h"
 
-__global__ void harvest(curandStateXORWOW_t* devGridStates, short* psaX, float* pfaSugar, float* pfaSpice,
+__global__ void harvest(unsigned int* theRandoms, short* psaX, float* pfaSugar, float* pfaSpice,
 		int* pigGridBits, int* pigResidents)
 {
 	short sX = blockIdx.x;
@@ -39,9 +39,8 @@ __global__ void harvest(curandStateXORWOW_t* devGridStates, short* psaX, float* 
 		}
 		break;
 	default:
-		curandStateXORWOW_t localState = devGridStates[iAddy];
-		iOffset = curand_uniform(&localState)*gbwBits.asBits.occupancy;
-		devGridStates[iAddy] = localState;
+		float fTemp = theRandoms[iAddy]*gbwBits.asBits.occupancy/UINT_MAX;
+		iOffset = fTemp;
 		iAgentID = pigResidents[iAddy*MAX_OCCUPANCY+iOffset];
 
 		// if the agent is alive

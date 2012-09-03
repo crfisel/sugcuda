@@ -59,7 +59,7 @@ __global__ void count_occupancy(short* psaX, short* psaY, int* pigGridBits, int*
 
 						// now increment square occupancy
 						gbwBitsCopy.asBits.occupancy++;
-			
+
 						// unlock the square and apply the change to occupancy
 						gbwBitsCopy.asBits.isLocked = 0;
 						if (gbwBitsCopy.asBits.occupancy == 0) {

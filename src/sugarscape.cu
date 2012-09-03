@@ -9,9 +9,9 @@
 #include <stdlib.h>
 #include <cuda.h>
 #include <limits.h>
-#include <curand_kernel.h>
 #include "symbolic_constants.h"
-#include "rngs.h"
+#include "common_config.h"
+#include "cudpp.h"
 #include "randoms.h"
 #include "harvest.h"
 #include "eat.h"
@@ -20,71 +20,76 @@
 
 int main (int argc , char* argv [])
 {
-	curandStateXORWOW_t* devAgentStates = 0;
-	curandStateXORWOW_t* devGridStates = 0;
-
 	// use the GTX470
 	cudaSetDevice(0);
 
-	// Allocate and set up prng states on device
-	CUDA_CALL(cudaMalloc((void**)&devAgentStates,NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK*sizeof(curandStateXORWOW_t)));
-	CUDA_CALL(cudaMalloc((void**)&devGridStates,GRID_SIZE*GRID_SIZE*sizeof(curandStateXORWOW_t)));
-	setup_kernel<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(devAgentStates);
-	setup_kernel<<<GRID_SIZE,GRID_SIZE>>>(devGridStates);
+    unsigned int seed = 9999;   //constant seed
+    unsigned int* md5GPU1;
+    unsigned int* md5GPUHost1;
+
+    //initialize the CUDPP config
+    CUDPPConfiguration config;
+    config.op = CUDPP_ADD;
+    config.datatype = CUDPP_UINT;
+    config.algorithm = CUDPP_RAND_MD5;
+    config.options = 0;
+
+    CUDPPHandle randPlan = 0;
+    CUDPPResult result;
+
+    CUDPPHandle theCudpp;
+    result = cudppCreate(&theCudpp);
+	if(result != CUDPP_SUCCESS)
+	{
+		printf("Error initializing CUDPP Library.\n");
+		return -1;
+	}
+
+	CUDA_CALL(cudaMalloc((void**)&md5GPU1,MAX_AGENTS*sizeof(unsigned int)));
+	md5GPUHost1 = (unsigned int*) malloc(sizeof(unsigned int)*MAX_AGENTS);
+	result = cudppPlan(theCudpp,&randPlan,config,MAX_AGENTS,1,0);
+
+	if (CUDPP_SUCCESS != result)
+        {
+            printf("Error creating CUDPPPlan\n");
+            exit(-1);
+        }
+
+	cudppRandSeed(randPlan, seed);
+	cudppRand(randPlan,md5GPU1,INIT_AGENTS);
+
+// initialize agent properties
+	// setup dimensions
+	int hNumBlocks = (INIT_AGENTS+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
+
+	// position in x and y
+	short* psaX;
+	CUDA_CALL(cudaMalloc((void**)&psaX,MAX_AGENTS*sizeof(short)));
+	short* psaY;
+	CUDA_CALL(cudaMalloc((void**)&psaY,MAX_AGENTS*sizeof(short)));
+	fill_positions<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(md5GPU1,psaX,psaY);	
 
 	// create agent arrays on device
 	// bit storage
 	int* piaAgentBits;
 	CUDA_CALL(cudaMalloc((void**)&piaAgentBits,MAX_AGENTS*sizeof(int)));
-
+	cudppRand(randPlan,md5GPU1,INIT_AGENTS);
+	initialize_agentbits<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(md5GPU1,piaAgentBits);
+	
 	// sugar holdings
 	float* pfaSugar;
 	CUDA_CALL(cudaMalloc((void**)&pfaSugar,MAX_AGENTS*sizeof(float)));
-
-	// spice holdings
-	float* pfaSpice;
-	CUDA_CALL(cudaMalloc((void**)&pfaSpice,MAX_AGENTS*sizeof(float)));
-
-	// current age
-	short* psaAge;
-	CUDA_CALL(cudaMalloc((void**)&psaAge,MAX_AGENTS*sizeof(short)));
-
-	// initialize agent properties
-	// setup dimensions
-	int hNumTiles = (INIT_AGENTS+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK/NUM_THREADS_PER_BLOCK;
-	int hNumBlocks = (INIT_AGENTS+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
-
-	// for large numbers of agents, tile the prngs
-	if (INIT_AGENTS > NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK) {
-		for (int i = 0; i < hNumTiles; i++) {
-/*			generate_shorts<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
-					devAgentStates,&(psaX[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),(GRID_SIZE));
-			generate_shorts<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
-					devAgentStates,&(psaY[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),(GRID_SIZE));
-*/			generate_ints<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
-					devAgentStates,&(piaAgentBits[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]));
-			generate_floats<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
-					devAgentStates,&(pfaSugar[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),30.0f);
-			generate_floats<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
-					devAgentStates,&(pfaSpice[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),30.0f);
-			generate_shorts<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
-					devAgentStates,&(psaAge[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),100);
-		}
-	} else {
-/*		generate_shorts<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,psaX,GRID_SIZE);
-		generate_shorts<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,psaY,GRID_SIZE);
-*/		generate_ints<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,piaAgentBits);
-		generate_floats<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,pfaSugar,30.0f);
-		generate_floats<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,pfaSpice,30.0f);
-		generate_shorts<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,psaAge,100);
-	}
-
-	// initial sugar holdings
+	cudppRand(randPlan,md5GPU1,INIT_AGENTS);
+	initialize_food<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(md5GPU1,pfaSugar,30.0f);	
 	float* pfaInitialSugar;
 	CUDA_CALL(cudaMalloc((void**)&pfaInitialSugar,MAX_AGENTS*sizeof(float)));
 	CUDA_CALL(cudaMemcpy(pfaInitialSugar,pfaSugar,INIT_AGENTS*sizeof(float),cudaMemcpyDeviceToDevice));
 
-	// initial spice holdings
+	// spice holdings
+	float* pfaSpice;
+	CUDA_CALL(cudaMalloc((void**)&pfaSpice,MAX_AGENTS*sizeof(float)));
+	cudppRand(randPlan,md5GPU1,INIT_AGENTS);
+	initialize_food<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(md5GPU1,pfaSpice,30.0f);	
 	float* pfaInitialSpice;
 	CUDA_CALL(cudaMalloc((void**)&pfaInitialSpice,MAX_AGENTS*sizeof(float)));
 	CUDA_CALL(cudaMemcpy(pfaInitialSpice,pfaSpice,INIT_AGENTS*sizeof(float),cudaMemcpyDeviceToDevice));
@@ -93,8 +98,8 @@ int main (int argc , char* argv [])
 	// sugar in square
 	int* pigGridBits;
 	CUDA_CALL(cudaMalloc((void**)&pigGridBits,GRID_SIZE*GRID_SIZE*sizeof(int)));
-
-	initialize_gridbits<<<GRID_SIZE,GRID_SIZE>>>(devGridStates,pigGridBits);
+	cudppRand(randPlan,md5GPU1,GRID_SIZE*GRID_SIZE);
+	initialize_gridbits<<<GRID_SIZE,GRID_SIZE>>>(md5GPU1,pigGridBits);
 
 	// current residents in square - initialized to -1's, aka empty
 	int* pigResidents;
@@ -112,10 +117,16 @@ int main (int argc , char* argv [])
 	// the deferred queue size
 	int* piDeferredQueueSize;
 	CUDA_CALL(cudaMalloc((void**)&piDeferredQueueSize,sizeof(int)));
+	
+	// and its host-side copy
+	int* pihDeferredQueueSize = (int*) malloc(sizeof(int));
 
 	// the successful locks counter
 	int* piLockSuccesses;
 	CUDA_CALL(cudaMalloc((void**)&piLockSuccesses,sizeof(int)));
+	
+	// and its host-side copy
+	int* pihLockSuccesses = (int*) malloc(sizeof(int));
 	
 	// the (dynamic) population counter
 	int* piPopulation;
@@ -123,26 +134,6 @@ int main (int argc , char* argv [])
 	int* pihPopulation = (int*) malloc(sizeof(int)); 
 	pihPopulation[0] = INIT_AGENTS;
 	CUDA_CALL(cudaMemcpy(piPopulation,pihPopulation,sizeof(int),cudaMemcpyHostToDevice));
-		
-	// position in x
-	short* psaX;
-	CUDA_CALL(cudaMalloc((void**)&psaX,MAX_AGENTS*sizeof(short)));
-	short* psahTemp = (short*) malloc(MAX_AGENTS*sizeof(short));
-	for (int i = 0; i < INIT_AGENTS; i++) {
-		psahTemp[i] = Random()*(GRID_SIZE-1);
-	}
-	CUDA_CALL(cudaMemcpy(psaX,psahTemp,INIT_AGENTS*sizeof(short),cudaMemcpyHostToDevice));
-
-	//position in y
-	short* psaY;
-	CUDA_CALL(cudaMalloc((void**)&psaY,MAX_AGENTS*sizeof(short)));
-	// fill iTemp arrays with random numbers and copy to device
-	for (int i = 0; i < INIT_AGENTS; i++) {
-		psahTemp[i] = Random()*(GRID_SIZE-1);
-	}
-	CUDA_CALL(cudaMemcpy(psaY,psahTemp,INIT_AGENTS*sizeof(short),cudaMemcpyHostToDevice));
-
-	free(psahTemp);
 
 	cudaDeviceSynchronize();
 
@@ -156,8 +147,8 @@ int main (int argc , char* argv [])
 
 	// count occupancy and store residents
 
-	int status = exercise_locks(COUNT,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,psaAge,pigGridBits,
-		pigResidents,piaQueueA,piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+	int status = exercise_locks(COUNT,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pigGridBits,pigResidents,piaQueueA,
+		piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses,pihDeferredQueueSize,pihLockSuccesses);
 
 	//   end timing
 	cudaThreadSynchronize();
@@ -172,8 +163,8 @@ int main (int argc , char* argv [])
 	cudaEventRecord(start,0);
 
 	// do movement
-	status = exercise_locks(MOVE,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,psaAge,pigGridBits, 
-		pigResidents,piaQueueA,piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+	status = exercise_locks(MOVE,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pigGridBits,pigResidents,piaQueueA,
+		piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses,pihDeferredQueueSize,pihLockSuccesses);
 	cudaDeviceSynchronize();
 
 	//   end timing
@@ -188,11 +179,12 @@ int main (int argc , char* argv [])
 	// time harvest, meal and aging
 	cudaEventRecord(start,0);
 
-	harvest<<<GRID_SIZE,GRID_SIZE>>>(devGridStates,psaX,pfaSugar,pfaSpice,pigGridBits,pigResidents);
+	cudppRand(randPlan,md5GPU1,GRID_SIZE*GRID_SIZE);
+	harvest<<<GRID_SIZE,GRID_SIZE>>>(md5GPU1,psaX,pfaSugar,pfaSpice,pigGridBits,pigResidents);
 
 	eat<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,piaAgentBits,pfaSugar,pfaSpice);
 
-	age<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaAge);
+	age<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(piaAgentBits);
 
 	//   end timing
 	cudaThreadSynchronize();
@@ -206,8 +198,8 @@ int main (int argc , char* argv [])
 	// time dying
 	cudaEventRecord(start,0);
 
-	status = exercise_locks(DIE,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,psaAge,pigGridBits, 
-		pigResidents,piaQueueA,piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+	status = exercise_locks(DIE,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pigGridBits,pigResidents,piaQueueA,
+		piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses,pihDeferredQueueSize,pihLockSuccesses);
 
 	//   end timing
 	cudaThreadSynchronize();
@@ -225,7 +217,6 @@ int main (int argc , char* argv [])
 	CUDA_CALL(cudaFree(piaAgentBits));
 	CUDA_CALL(cudaFree(pfaSugar));
 	CUDA_CALL(cudaFree(pfaSpice));
-	CUDA_CALL(cudaFree(psaAge));
 	CUDA_CALL(cudaFree(pfaInitialSugar));
 	CUDA_CALL(cudaFree(pfaInitialSpice));
 	CUDA_CALL(cudaFree(pigGridBits));
@@ -234,8 +225,22 @@ int main (int argc , char* argv [])
 	CUDA_CALL(cudaFree(piaQueueB));
 	CUDA_CALL(cudaFree(piDeferredQueueSize));
 	CUDA_CALL(cudaFree(piLockSuccesses));
-	CUDA_CALL(cudaFree(devAgentStates));
-	CUDA_CALL(cudaFree(devGridStates));
+	free(pihLockSuccesses);
+	free(pihDeferredQueueSize);
+
+	CUDA_CALL(cudaFree(md5GPU1));
+	free(md5GPUHost1);
+	result = cudppDestroyPlan(randPlan);
+	if (CUDPP_SUCCESS != result) {
+			printf("Error destroying CUDPPPlan\n");
+			exit(-1);
+	}
+	
+	result = cudppDestroy(theCudpp);
+	if (CUDPP_SUCCESS != result) {
+		printf("Error shutting down CUDPP Library.\n");
+		exit(-1);
+	}
 
 	return EXIT_SUCCESS;
 }

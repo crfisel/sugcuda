@@ -16,10 +16,11 @@ union AgentBitWise
 		unsigned short vision : 2;
 		unsigned short metSugar : 2;
 		unsigned short metSpice : 2;
+		unsigned short age : 7;
 		unsigned short startFertilityAge : 2;
 		unsigned short endFertilityAge : 4;
 		unsigned short deathAge : 5;
-		unsigned short pad : 13;
+		unsigned short pad : 6;
 		unsigned short isLocked : 1;
 	} asBits;
     	int asInt;

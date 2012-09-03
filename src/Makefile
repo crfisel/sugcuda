@@ -36,15 +36,22 @@
 # Add source files here
 EXECUTABLE	:= sugarscape
 
+# Includes
+INCLUDES  += -I/home/sammy/cudpp_src_2.0/include -I/home/sammy/cudpp_src_2.0/apps/common/include
+
+# Cudpp libs
+#LIB       += -L/home/sammy/cudpp_src_2.0/lib
+
 # Cuda source files (compiled with cudacc)
-CUFILES_sm_20	:= sugarscape.cu count.cu randoms.cu move.cu harvest.cu eat.cu age.cu die.cu exercise_locks.cu #mate.cu
+CUFILES_sm_20	:= sugarscape.cu randoms.cu count.cu move.cu die.cu exercise_locks.cu harvest.cu eat.cu age.cu #mate.cu
 
 # C/C++ source files (compiled with gcc / c++)
-CCFILES     := rngs.c
+#CCFILES     := rngs.c
 
 USEGLLIB	:= 1
 USEPARAMGL	:= 1
 USEGLUT		:= 1
+USECUDPP	:= 1
 
 
 ################################################################################

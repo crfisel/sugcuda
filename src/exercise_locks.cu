@@ -16,8 +16,9 @@
 #include "die.h"
 
 
-int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, float* pfaSpice, short* psaAge, int* pigGridBits, 
-	int* pigResidents, int* piaQueueA, int* piPopulation, int* pihPopulation, int* piaQueueB, int* piDeferredQueueSize, int* piLockSuccesses)
+int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, float* pfaSpice, int* pigGridBits, 
+	int* pigResidents, int* piaQueueA, int* piPopulation, int* pihPopulation, int* piaQueueB, int* piDeferredQueueSize, int* piLockSuccesses, 
+	int* pihDeferredQueueSize, int* pihLockSuccesses)
 {
 	int status = EXIT_SUCCESS;
 	
@@ -53,7 +54,7 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 				pigGridBits,pigResidents,piaQueueA,pihPopulation[0],piaQueueB,piDeferredQueueSize,piLockSuccesses);
 			break;
 		case DIE:
-			register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,psaAge,pfaSugar,pfaSpice,
+			register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
 				pigGridBits,pigResidents,piaQueueA,pihPopulation[0],piaQueueB,piDeferredQueueSize,piLockSuccesses);
 			break;
 		default:
@@ -62,10 +63,8 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 	cudaDeviceSynchronize();
 
 	// check if any agents had to be deferred
-	int* pihDeferredQueueSize = (int*) malloc(sizeof(int));
 	CUDA_CALL(cudaMemcpy(pihDeferredQueueSize,piDeferredQueueSize,sizeof(int),cudaMemcpyDeviceToHost));
 	printf ("primary deferrals:%d \n",pihDeferredQueueSize[0]);
-	int* pihLockSuccesses = (int*) malloc(sizeof(int));
 	CUDA_CALL(cudaMemcpy(pihLockSuccesses,piLockSuccesses,sizeof(int),cudaMemcpyDeviceToHost));
 	printf ("successful locks:%d \n",pihLockSuccesses[0]);
 
@@ -91,7 +90,7 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 						pigGridBits,pigResidents,piaQueueB,ihActiveQueueSize,piaQueueA,piDeferredQueueSize,piLockSuccesses);
 					break;
 				case DIE:
-					register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,psaAge,pfaSugar,pfaSpice,
+					register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
 						pigGridBits,pigResidents,piaQueueB,ihActiveQueueSize,piaQueueA,piDeferredQueueSize,piLockSuccesses);
 					break;
 				default:
@@ -110,7 +109,7 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 						pigGridBits,pigResidents,piaQueueA,ihActiveQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 					break;
 				case DIE:
-					register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,psaAge,pfaSugar,pfaSpice,
+					register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
 						pigGridBits,pigResidents,piaQueueA,ihActiveQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 					break;
 				default:
@@ -136,7 +135,7 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 						pigResidents,piaQueueB,ihActiveQueueSize);
 					break;
 				case DIE:
-					register_deaths_fs<<<1,1>>>(psaX,psaY,piaAgentBits,psaAge,pfaSugar,pfaSpice,
+					register_deaths_fs<<<1,1>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
 						pigGridBits,pigResidents,piaQueueB,ihActiveQueueSize);
 					break;
 				default:
@@ -152,7 +151,7 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 						pigResidents,piaQueueA,ihActiveQueueSize);
 					break;
 				case DIE:
-					register_deaths_fs<<<1,1>>>(psaX,psaY,piaAgentBits,psaAge,pfaSugar,pfaSpice,
+					register_deaths_fs<<<1,1>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
 						pigGridBits,pigResidents,piaQueueA,ihActiveQueueSize);
 					break;
 				default:
@@ -163,8 +162,6 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 	}
 
 	// cleanup
-	free(pihLockSuccesses);
-	free(pihDeferredQueueSize);
 	free(piahTemp);
 
 	return status;

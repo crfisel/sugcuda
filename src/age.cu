@@ -9,11 +9,15 @@
 #include <stdlib.h>
 #include <cuda.h>
 #include "symbolic_constants.h"
+#include "bitwise.h"
 #include "age.h"
 
-__global__ void age(short* psaAge)
+__global__ void age(int* piaAgentBits)
 {
 	int iAgentID = blockIdx.x*blockDim.x+threadIdx.x;
-	psaAge[iAgentID]++;
+	AgentBitWise abwBits;
+	abwBits.asInt = piaAgentBits[iAgentID];
+	abwBits.asBits.age++;
+	piaAgentBits[iAgentID]=abwBits.asInt;
 	return;
 }

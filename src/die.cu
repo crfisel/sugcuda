@@ -6,9 +6,9 @@
 #include "die.h"
 
 // this kernel has one thread per agent
-__global__ void register_deaths(short* psaX, short* psaY, int* piaAgentBits, short* psaAge, 
-		float* pfaSugar, float* pfaSpice, int* pigGridBits, int* pigResidents, int* piaActiveQueue, 
-		const int ciActiveQueueSize, int* piaDeferredQueue, int* piDeferredQueueSize, int* piLockSuccesses)
+__global__ void register_deaths(short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, float* pfaSpice, 
+		int* pigGridBits, int* pigResidents, int* piaActiveQueue, const int ciActiveQueueSize, int* piaDeferredQueue, 
+		int* piDeferredQueueSize, int* piLockSuccesses)
 {
 	bool lockFailed = false;
 
@@ -25,7 +25,7 @@ __global__ void register_deaths(short* psaX, short* psaY, int* piaAgentBits, sho
 			AgentBitWise abwBits;
 			abwBits.asInt = piaAgentBits[iAgentID];
 
-			if ((psaAge[iAgentID] > 64+abwBits.asBits.deathAge) || (pfaSpice[iAgentID] < 0.0f) || (pfaSpice[iAgentID] < 0.0f)) {
+			if ((abwBits.asBits.age > 64+abwBits.asBits.deathAge) || (pfaSpice[iAgentID] < 0.0f) || (pfaSpice[iAgentID] < 0.0f)) {
 
 				// lock address to register death - if lock fails, defer
 				// current agent's address in the grid
@@ -90,7 +90,7 @@ __global__ void register_deaths(short* psaX, short* psaY, int* piaAgentBits, sho
 }
 
 // this "failsafe" kernel has one thread, for persistent lock failures
-__global__ void register_deaths_fs(short* psaX, short* psaY, int* piaAgentBits, short* psaAge,
+__global__ void register_deaths_fs(short* psaX, short* psaY, int* piaAgentBits, 
 		float* pfaSugar, float* pfaSpice, int* pigGridBits, int* pigResidents, 
 		int* piaActiveQueue, const int ciActiveQueueSize)
 {
@@ -110,7 +110,7 @@ __global__ void register_deaths_fs(short* psaX, short* psaY, int* piaAgentBits, 
 				AgentBitWise abwBits;
 				abwBits.asInt = piaAgentBits[iAgentID];
 				// check for death by old age or starvation
-				if ((psaAge[iAgentID] > 64+(abwBits.asBits.deathAge)) || (pfaSpice[iAgentID] < 0.0f) || (pfaSpice[iAgentID] < 0.0f)) {
+				if ((abwBits.asBits.age > 64+(abwBits.asBits.deathAge)) || (pfaSpice[iAgentID] < 0.0f) || (pfaSpice[iAgentID] < 0.0f)) {
 					
 					// current agent's address in the grid
 					int iAddy = psaX[iAgentID]*GRID_SIZE+psaY[iAgentID];
