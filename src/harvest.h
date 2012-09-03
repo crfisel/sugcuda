@@ -8,6 +8,6 @@
 #ifndef HARVEST_H_
 #define HARVEST_H_
 
-__global__ void harvest(curandStateXORWOW_t* , short* , float* , float* , short* , short* , short* , int* );
+__global__ void harvest(curandStateXORWOW_t* , short* , float* , float* , int* , int* );
 
 #endif /* HARVEST_H_ */

@@ -10,19 +10,22 @@
 #include <cuda.h>
 #include <curand_kernel.h>
 #include "symbolic_constants.h"
+#include "bitwise.h"
 #include "randoms.h"
 #include "harvest.h"
 
 __global__ void harvest(curandStateXORWOW_t* devGridStates, short* psaX, float* pfaSugar, float* pfaSpice,
-		short* psgSugar, short* psgSpice, short* psgOccupancy, int* pigResidents)
+		int* pigGridBits, int* pigResidents)
 {
 	short sX = blockIdx.x;
 	short sY = threadIdx.x;
 	int iAddy = sX*blockDim.x+sY;
 	int iAgentID;
 	short iOffset;
+	GridBitWise gbwBits;
 
-	switch (psgOccupancy[iAddy]) {
+	gbwBits.asInt = pigGridBits[iAddy];
+	switch (gbwBits.asBits.occupancy) {
 	case 0:
 		break;
 	case 1:
@@ -31,21 +34,21 @@ __global__ void harvest(curandStateXORWOW_t* devGridStates, short* psaX, float* 
 		// work with live agents only
 		if (psaX[iAgentID] > -1) {
 
-			pfaSugar[iAgentID] += psgSugar[iAddy];
-			pfaSpice[iAgentID] += psgSpice[iAddy];
+			pfaSugar[iAgentID] += gbwBits.asBits.sugar;
+			pfaSpice[iAgentID] += gbwBits.asBits.spice;
 		}
 		break;
 	default:
 		curandStateXORWOW_t localState = devGridStates[iAddy];
-		iOffset = curand_uniform(&localState)*psgOccupancy[iAddy];
+		iOffset = curand_uniform(&localState)*gbwBits.asBits.occupancy;
 		devGridStates[iAddy] = localState;
 		iAgentID = pigResidents[iAddy*MAX_OCCUPANCY+iOffset];
 
 		// work with live agents only
 		if (psaX[iAgentID] > -1) {
 
-			pfaSugar[iAgentID] += psgSugar[iAddy];
-			pfaSpice[iAgentID] += psgSpice[iAddy];
+			pfaSugar[iAgentID] += gbwBits.asBits.sugar;
+			pfaSpice[iAgentID] += gbwBits.asBits.spice;
 		}
 		break;
 	}

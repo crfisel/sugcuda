@@ -45,8 +45,8 @@ int main (int argc , char* argv [])
 	CUDA_CALL(cudaMalloc((void**)&psaY,hPopulation*sizeof(short)));
 
 	// bit storage
-	int* piaBits;
-	CUDA_CALL(cudaMalloc((void**)&piaBits,hPopulation*sizeof(int)));
+	int* piaAgentBits;
+	CUDA_CALL(cudaMalloc((void**)&piaAgentBits,hPopulation*sizeof(int)));
 
 	// sugar holdings
 	float* pfaSugar;
@@ -73,20 +73,20 @@ int main (int argc , char* argv [])
 			generate_shorts<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
 					devAgentStates,&(psaY[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),(GRID_SIZE-1));
 			generate_ints<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
-					devAgentStates,&(piaBits[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),INT_MAX);
+					devAgentStates,&(piaAgentBits[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),INT_MAX);
 			generate_floats<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
-					devAgentStates,&(pfaSugar[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),4.0f);
+					devAgentStates,&(pfaSugar[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),30.0f);
 			generate_floats<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
-					devAgentStates,&(pfaSpice[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),4.0f);
+					devAgentStates,&(pfaSpice[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),30.0f);
 			generate_shorts<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
 					devAgentStates,&(psaAge[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),100);
 		}
 	} else {
 		generate_shorts<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,psaX,GRID_SIZE-1);
 		generate_shorts<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,psaY,GRID_SIZE-1);
-		generate_ints<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,piaBits,INT_MAX);
-		generate_floats<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,pfaSugar,4.0f);
-		generate_floats<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,pfaSpice,4.0f);
+		generate_ints<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,piaAgentBits,INT_MAX);
+		generate_floats<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,pfaSugar,30.0f);
+		generate_floats<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,pfaSpice,30.0f);
 		generate_shorts<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,psaAge,100);
 	}
 
@@ -102,30 +102,15 @@ int main (int argc , char* argv [])
 
 	// create grid on device
 	// sugar in square
-	short* psgSugar;
-	CUDA_CALL(cudaMalloc((void**)&psgSugar,GRID_SIZE*GRID_SIZE*sizeof(short)));
+	int* pigGridBits;
+	CUDA_CALL(cudaMalloc((void**)&pigGridBits,GRID_SIZE*GRID_SIZE*sizeof(int)));
 
-	// spice in square
-	short* psgSpice;
-	CUDA_CALL(cudaMalloc((void**)&psgSpice,GRID_SIZE*GRID_SIZE*sizeof(short)));
-
-	generate_shorts<<<GRID_SIZE,GRID_SIZE>>>(devGridStates,psgSugar,4);
-	generate_shorts<<<GRID_SIZE,GRID_SIZE>>>(devGridStates,psgSpice,4);
-
-	// occupancy of square - initially zero
-	short* psgOccupancy;
-	CUDA_CALL(cudaMalloc((void**)&psgOccupancy,GRID_SIZE*GRID_SIZE*sizeof(short)));
-	CUDA_CALL(cudaMemset(psgOccupancy,0,GRID_SIZE*GRID_SIZE*sizeof(short)));
+	initialize_gridbits<<<GRID_SIZE,GRID_SIZE>>>(devGridStates,pigGridBits);
 
 	// current residents in square - initialized to -1's, aka empty
 	int* pigResidents;
 	CUDA_CALL(cudaMalloc((void**)&pigResidents,GRID_SIZE*GRID_SIZE*MAX_OCCUPANCY*sizeof(int)));
 	CUDA_CALL(cudaMemset(pigResidents,0xFFFF,GRID_SIZE*GRID_SIZE*MAX_OCCUPANCY*sizeof(int)));
-
-	// provision for locking the square - set to unlocked
-	int* pigLocks;
-	CUDA_CALL(cudaMalloc((void**)&pigLocks,GRID_SIZE*GRID_SIZE*sizeof(int)));
-	CUDA_CALL(cudaMemset(pigLocks,0,GRID_SIZE*GRID_SIZE*sizeof(int)));
 
 	// the agent queue
 	int* piaQueueA;
@@ -154,7 +139,7 @@ int main (int argc , char* argv [])
 	cudaEventRecord(start,0);
 
 	// count occupancy and store residents
-	int status = count(psaX,psaY,psgOccupancy,pigResidents,pigLocks,piaQueueA,hPopulation,
+	int status = count(psaX,psaY,pigGridBits,pigResidents,piaQueueA,hPopulation,
 		piaQueueB,piDeferredQueueSize,piLockSuccesses);
 
 	//   end timing
@@ -169,8 +154,8 @@ int main (int argc , char* argv [])
 	cudaEventRecord(start,0);
 
 	// do movement
-	move(psaX,psaY,piaBits,pfaSugar,pfaSpice,psgSugar,psgSpice,psgOccupancy,pigResidents,
-		pigLocks,piaQueueA,hPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+	move(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pigGridBits,pigResidents,
+		piaQueueA,hPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 	cudaDeviceSynchronize();
 
 	//   end timing
@@ -184,8 +169,7 @@ int main (int argc , char* argv [])
 	// time harvest
 	cudaEventRecord(start,0);
 
-	harvest<<<GRID_SIZE,GRID_SIZE>>>(devGridStates,psaX,pfaSugar,pfaSpice,psgSugar,psgSpice,
-			psgOccupancy,pigResidents);
+	harvest<<<GRID_SIZE,GRID_SIZE>>>(devGridStates,psaX,pfaSugar,pfaSpice,pigGridBits,pigResidents);
 
 	//   end timing
 	cudaThreadSynchronize();
@@ -198,7 +182,7 @@ int main (int argc , char* argv [])
 	// time meal
 	cudaEventRecord(start,0);
 
-	eat<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,piaBits,pfaSugar,pfaSpice);
+	eat<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,piaAgentBits,pfaSugar,pfaSpice);
 
 	//   end timing
 	cudaThreadSynchronize();
@@ -225,8 +209,8 @@ int main (int argc , char* argv [])
 	// time dying
 	cudaEventRecord(start,0);
 
-	die(psaX,psaY,piaBits,psaAge,pfaSugar,pfaSpice,psgOccupancy, 
-			pigResidents,pigLocks,piaQueueA,hPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+	die(psaX,psaY,piaAgentBits,psaAge,pfaSugar,pfaSpice,pigGridBits,pigResidents,
+		piaQueueA,hPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 
 	//   end timing
 	cudaThreadSynchronize();
@@ -239,22 +223,20 @@ int main (int argc , char* argv [])
 	// Cleanup 
 	CUDA_CALL(cudaFree(psaX));
 	CUDA_CALL(cudaFree(psaY));
-	CUDA_CALL(cudaFree(piaBits));
+	CUDA_CALL(cudaFree(piaAgentBits));
 	CUDA_CALL(cudaFree(pfaSugar));
 	CUDA_CALL(cudaFree(pfaSpice));
 	CUDA_CALL(cudaFree(psaAge));
 	CUDA_CALL(cudaFree(pfaInitialSugar));
 	CUDA_CALL(cudaFree(pfaInitialSpice));
-	CUDA_CALL(cudaFree(psgSugar));
-	CUDA_CALL(cudaFree(psgSpice));
-	CUDA_CALL(cudaFree(psgOccupancy));
+	CUDA_CALL(cudaFree(pigGridBits));
 	CUDA_CALL(cudaFree(pigResidents));
-	CUDA_CALL(cudaFree(pigLocks));
 	CUDA_CALL(cudaFree(piaQueueA));
 	CUDA_CALL(cudaFree(piaQueueB));
 	CUDA_CALL(cudaFree(piDeferredQueueSize));
 	CUDA_CALL(cudaFree(piLockSuccesses));
 	CUDA_CALL(cudaFree(devAgentStates));
 	CUDA_CALL(cudaFree(devGridStates));
+
 	return EXIT_SUCCESS ;
 }

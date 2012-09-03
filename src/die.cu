@@ -4,17 +4,14 @@
 #include "bitwise.h"
 #include "die.h"
 
-// this kernel has one thread per agent, each traversing the local neighborhood prescribed by its vision
-// NOTE: NUM_AGENTS is an int, GRID_SIZE is a short
-__global__ void register_deaths(short* psaX, short* psaY, int* piaBits, short* psaAge,
-		float* pfaSugar, float* pfaSpice, short* psgOccupancy, int* pigResidents,
-		int* pigLocks, int* piaActiveQueue, const int ciActiveQueueSize,
-		int* piaDeferredQueue, int* piDeferredQueueSize, int* piLockSuccesses)
+// this kernel has one thread per agent
+__global__ void register_deaths(short* psaX, short* psaY, int* piaAgentBits, short* psaAge, 
+		float* pfaSugar, float* pfaSpice, int* pigGridBits, int* pigResidents, int* piaActiveQueue, 
+		const int ciActiveQueueSize, int* piaDeferredQueue, int* piDeferredQueueSize, int* piLockSuccesses)
 {
 	int iAgentID;
-	int iTemp = 0;
 	int iFlag = 0;
-	int iLocked = 0;
+	bool lockFailed = false;
 
 	// get the iAgentID from the active agent queue
 	int iOffset = threadIdx.x + blockIdx.x*blockDim.x;
@@ -25,49 +22,76 @@ __global__ void register_deaths(short* psaX, short* psaY, int* piaBits, short* p
 		if (psaX[iAgentID] > -1) {
 
 			// check for death by old age
-			// reinterpret piaBits bitwise for death age
-			BitWise bwLocalBits;
-			bwLocalBits.asInt = piaBits[iAgentID];
-			if ((psaAge[iAgentID] > 64+(bwLocalBits.asBits.deathAge)) ||
+			// reinterpret piaAgentBits bitwise for death age
+			AgentBitWise abwBits;
+			abwBits.asInt = piaAgentBits[iAgentID];
+			if ((psaAge[iAgentID] > 64+(abwBits.asBits.deathAge)) ||
 					// check for starvation
 					(pfaSpice[iAgentID] < 0.0f) || (pfaSpice[iAgentID] < 0.0f)) {
-				//printf("age %d death age %d sugar %f spice %f\n",psaAge[iAgentID],60+2*((&piaBits[iAgentID])->deathAge),pfaSugar[iAgentID],pfaSpice[iAgentID]);
+		//printf("age %d death age %d sugar %f spice %f\n",psaAge[iAgentID],60+2*((&piaAgentBits[iAgentID])->deathAge),pfaSugar[iAgentID],pfaSpice[iAgentID]);
 				// lock address to register death - if lock fails, defer
 
 				// current agent's address in the grid
 				int iAddy = psaX[iAgentID]*GRID_SIZE+psaY[iAgentID];
-				iLocked = atomicCAS(&(pigLocks[iAddy]), 0, 1);
-				if (iLocked == 0) {
-					iFlag = atomicAdd(piLockSuccesses,1);
-					//	printf("death %d at %d:%d\n",iAgentID,psaX[iAgentID],psaY[iAgentID]);
+				GridBitWise gbwBits;
+				gbwBits.asInt = pigGridBits[iAddy];
 
-					// decrement occupancy at old address
-					short sOldOcc = psgOccupancy[iAddy]--;
-					if (sOldOcc >= 0) { 
-
-						// find match starting at end of list
-						short k = sOldOcc;
-						while (pigResidents[iAddy*MAX_OCCUPANCY+k] != iAgentID && k > 0) {k--;} //PROBLEM HERE!!!!
-
-						// remove current id - if it is not at the end, replace it with the one from the end
-						if (k != sOldOcc) atomicExch(&(pigResidents[iAddy*MAX_OCCUPANCY+k]), 
-								pigResidents[iAddy*MAX_OCCUPANCY+sOldOcc]);
-					} else {
-
-						// in case of bugs (i.e. old occupancy was already zero), report problem
-						//printf ("underflow at x:%d y:%d \n",psaX[iAgentID],psaY[iAgentID]);
-					}
-					// mark agent as dead
-					psaX[iAgentID] *= -1;
+				// test if address is locked
+				if (gbwBits.asBits.isLocked != 0) {
+					// if so, lock failed
+					lockFailed = true;
 				} else {
+					// if not, make a copy, but indicating locked
+					GridBitWise gbwBitsCopy = gbwBits;
+					gbwBitsCopy.asBits.isLocked = 1;
 
-					// otherwise, add the agent to the deferred queue
-					iTemp = atomicAdd(piDeferredQueueSize,1);
-					piaDeferredQueue[iTemp]=iAgentID;
+					// now lock the current address if possible
+					int iLocked = atomicCAS(&(pigGridBits[iAddy]),gbwBits.asInt,gbwBitsCopy.asInt);
+					// test if the lock failed
+					if (iLocked != gbwBits.asInt) {
+						lockFailed = true;
+					} else {
+						// at this point, the square is locked and a valid copy of its bits are in gbwBitsCopy (because locked)
+						iFlag = atomicAdd(piLockSuccesses,1);
+
+						// decrement occupancy at old address
+						short sOldOcc = gbwBitsCopy.asBits.occupancy;
+						gbwBitsCopy.asBits.occupancy--;
+						if (sOldOcc > 0) {
+							// find match starting at end of list
+							short k = gbwBitsCopy.asBits.occupancy;
+							// remove current id - if it is not at the end, replace it with the one from the end and store -1 at the end
+							if (pigResidents[iAddy*MAX_OCCUPANCY+k] == iAgentID) {
+								pigResidents[iAddy*MAX_OCCUPANCY+k] = -1;
+							} else {
+								while (pigResidents[iAddy*MAX_OCCUPANCY+k] != iAgentID && k >= 0) {k--;}
+								if (k != gbwBitsCopy.asBits.occupancy) {
+									pigResidents[iAddy*MAX_OCCUPANCY+k] = 
+										pigResidents[iAddy*MAX_OCCUPANCY+gbwBitsCopy.asBits.occupancy];
+									pigResidents[iAddy*MAX_OCCUPANCY+gbwBitsCopy.asBits.occupancy] = -1;
+								}
+							}
+						} else {
+							// in case of bugs (i.e. old occupancy was already zero), report problem
+							printf ("underflow occupancy %d at x:%d y:%d agent id %d \n",sOldOcc,psaX[iAgentID],psaY[iAgentID],iAgentID);
+						}
+
+						// unlock and update global occupancy values
+						gbwBitsCopy.asBits.isLocked = 0;
+						iFlag = atomicExch(&(pigGridBits[iAddy]),gbwBitsCopy.asInt);
+
+						// mark agent as dead
+						psaX[iAgentID] *= -1;	
+					}
 				}
 
-				// unlock
-				iFlag = atomicExch(&(pigLocks[iAddy]),0);
+				// if a move was warranted, but lock failures prevented it, defer
+				if (lockFailed) {
+					// if either lock failed or either agent was already locked, add the agent to the deferred queue
+					iFlag = atomicAdd(piDeferredQueueSize,1);
+					piaDeferredQueue[iFlag]=iAgentID;
+
+				}	
 			}
 		}
 	}
@@ -75,13 +99,11 @@ __global__ void register_deaths(short* psaX, short* psaY, int* piaBits, short* p
 }
 
 // this "failsafe" kernel has one thread, for persistent lock failures
-// NOTE: NUM_AGENTS is an int, GRID_SIZE is a short
-__global__ void register_deaths_fs(short* psaX, short* psaY, int* piaBits, short* psaAge,
-		float* pfaSugar, float* pfaSpice, short* psgOccupancy, int* pigResidents, int* piaActiveQueue,
-		const int ciActiveQueueSize)
+__global__ void register_deaths_fs(short* psaX, short* psaY, int* piaAgentBits, short* psaAge,
+		float* pfaSugar, float* pfaSpice, int* pigGridBits, int* pigResidents, 
+		int* piaActiveQueue, const int ciActiveQueueSize)
 {
 	int iAgentID;
-	int iTemp = 0;
 
 	// only the 1,1 block is active
 	if (threadIdx.x == 0 && blockIdx.x == 0) {
@@ -95,10 +117,10 @@ __global__ void register_deaths_fs(short* psaX, short* psaY, int* piaBits, short
 			if (psaX[iAgentID] > -1) {
 
 				// check for death by old age
-				// reinterpret piaBits bitwise for death age
-				BitWise bwLocalBits;
-				bwLocalBits.asInt = piaBits[iAgentID];
-				if ((psaAge[iAgentID] > 64+(bwLocalBits.asBits.deathAge)) ||
+				// reinterpret piaAgentBits bitwise for death age
+				AgentBitWise abwBits;
+				abwBits.asInt = piaAgentBits[iAgentID];
+				if ((psaAge[iAgentID] > 64+(abwBits.asBits.deathAge)) ||
 						// check for starvation
 						(pfaSpice[iAgentID] < 0.0f) || (pfaSpice[iAgentID] < 0.0f)) {
 					//printf("age %d sugar %f spice %f\n",psaAge[iAgentID],pfaSugar[iAgentID],pfaSpice[iAgentID]);
@@ -106,21 +128,29 @@ __global__ void register_deaths_fs(short* psaX, short* psaY, int* piaBits, short
 					int iAddy = psaX[iAgentID]*GRID_SIZE+psaY[iAgentID];
 					//	printf("death %d at %d:%d\n",iAgentID,psaX[iAgentID],psaY[iAgentID]);
 
+					// unpack grid bits
+					GridBitWise gbwBits;
+					gbwBits.asInt = pigGridBits[iAddy];
 					// decrement occupancy at old address
-					short sOldOcc = psgOccupancy[iAddy]--;
-					if (sOldOcc >= 0) { 
-
+					short sOldOcc = gbwBits.asBits.occupancy;
+					gbwBits.asBits.occupancy--;
+					if (sOldOcc > 0) {
 						// find match starting at end of list
-						short k = sOldOcc;
-						while (pigResidents[iAddy*MAX_OCCUPANCY+k] != iAgentID && k > 0) {k--;} //PROBLEM HERE!!!!
-
-						// remove current id - if it is not at the end, replace it with the one from the end
-						if (k != sOldOcc) atomicExch(&(pigResidents[iAddy*MAX_OCCUPANCY+k]), 
-								pigResidents[iAddy*MAX_OCCUPANCY+sOldOcc]);
+						short k = gbwBits.asBits.occupancy;
+						// remove current id - if it is not at the end, replace it with the one from the end and store -1 at end
+						if (pigResidents[iAddy*MAX_OCCUPANCY+k] == iAgentID) {
+							pigResidents[iAddy*MAX_OCCUPANCY+k] = -1;
+						} else {
+							while (pigResidents[iAddy*MAX_OCCUPANCY+k] != iAgentID && k >= 0) {k--;}
+							if (k != gbwBits.asBits.occupancy) {
+								pigResidents[iAddy*MAX_OCCUPANCY+k] = 
+										pigResidents[iAddy*MAX_OCCUPANCY+gbwBits.asBits.occupancy];
+								pigResidents[iAddy*MAX_OCCUPANCY+gbwBits.asBits.occupancy] = -1;
+							} 
+						}
 					} else {
-
 						// in case of bugs (i.e. old occupancy was already zero), report problem
-						printf ("underflow at x:%d y:%d \n",psaX[iAgentID],psaY[iAgentID]);
+						printf ("underflow occupancy %d at x:%d y:%d agent id %d \n",sOldOcc,psaX[iAgentID],psaY[iAgentID],iAgentID);
 					}
 					// mark agent as dead
 					psaX[iAgentID] *= -1;	
@@ -131,9 +161,8 @@ __global__ void register_deaths_fs(short* psaX, short* psaY, int* piaBits, short
 	return;
 }
 
-int die(short* psaX, short* psaY, int* piaBits, short* psaAge, float* pfaSugar, float* pfaSpice, short* psgOccupancy, 
-		int* pigResidents, int* pigLocks, int* piaQueueA, const int iQueueSize, int* piaQueueB, int* piDeferredQueueSize,
-		int* piLockSuccesses)
+int die(short* psaX, short* psaY, int* piaAgentBits, short* psaAge, float* pfaSugar, float* pfaSpice, int* pigGridBits, 
+		int* pigResidents, int* piaQueueA, const int iQueueSize, int* piaQueueB, int* piDeferredQueueSize, int* piLockSuccesses)
 {
 	int status = EXIT_SUCCESS;
 
@@ -156,8 +185,8 @@ int die(short* psaX, short* psaY, int* piaBits, short* psaAge, float* pfaSugar, 
 
 	// find best move for agents at the head of their square's resident list
 	int hiNumBlocks = (iQueueSize+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
-	register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaBits,psaAge,pfaSugar,pfaSpice,
-			psgOccupancy,pigResidents,pigLocks,piaQueueA,iQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+	register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,psaAge,pfaSugar,pfaSpice,
+			pigGridBits,pigResidents,piaQueueA,iQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 	cudaDeviceSynchronize();
 
 	// check if any agents had to be deferred
@@ -179,13 +208,13 @@ int die(short* psaX, short* psaY, int* piaBits, short* psaAge, float* pfaSugar, 
 		CUDA_CALL(cudaMemset(piLockSuccesses,0,sizeof(int)));
 		if (hQueue) {
 			CUDA_CALL(cudaMemset(piaQueueA,0xFF,iQueueSize*sizeof(int)));
-			register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaBits,psaAge,pfaSugar,pfaSpice,
-					psgOccupancy,pigResidents,pigLocks,piaQueueB,ihActiveQueueSize,piaQueueA,piDeferredQueueSize,piLockSuccesses);
+			register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,psaAge,pfaSugar,pfaSpice,
+					pigGridBits,pigResidents,piaQueueB,ihActiveQueueSize,piaQueueA,piDeferredQueueSize,piLockSuccesses);
 
 		} else {
 			CUDA_CALL(cudaMemset(piaQueueB,0xFF,iQueueSize*sizeof(int)));
-			register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaBits,psaAge,pfaSugar,pfaSpice,
-					psgOccupancy,pigResidents,pigLocks,piaQueueA,ihActiveQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+			register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,psaAge,pfaSugar,pfaSpice,
+					pigGridBits,pigResidents,piaQueueA,ihActiveQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 		}
 		cudaDeviceSynchronize();
 		hQueue = !hQueue;
@@ -197,12 +226,12 @@ int die(short* psaX, short* psaY, int* piaBits, short* psaAge, float* pfaSugar, 
 	if (pihDeferredQueueSize[0] <= 10 || pihDeferredQueueSize[0] >= ihActiveQueueSize) {
 		ihActiveQueueSize = pihDeferredQueueSize[0];
 		if (hQueue) {
-			register_deaths_fs<<<1,1>>>(psaX,psaY,piaBits,psaAge,pfaSugar,pfaSpice,
-					psgOccupancy,pigResidents,piaQueueB,ihActiveQueueSize);
+			register_deaths_fs<<<1,1>>>(psaX,psaY,piaAgentBits,psaAge,pfaSugar,pfaSpice,
+					pigGridBits,pigResidents,piaQueueB,ihActiveQueueSize);
 
 		} else {
-			register_deaths_fs<<<1,1>>>(psaX,psaY,piaBits,psaAge,pfaSugar,pfaSpice,
-					psgOccupancy,pigResidents,piaQueueA,ihActiveQueueSize);
+			register_deaths_fs<<<1,1>>>(psaX,psaY,piaAgentBits,psaAge,pfaSugar,pfaSpice,
+					pigGridBits,pigResidents,piaQueueA,ihActiveQueueSize);
 		}
 		cudaDeviceSynchronize();
 	}

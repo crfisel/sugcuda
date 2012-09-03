@@ -16,4 +16,6 @@ __global__ void generate_ints(curandStateXORWOW_t* , int* , int );
 
 __global__ void generate_shorts(curandStateXORWOW_t* , short* , short );
 
+__global__ void initialize_gridbits(curandStateXORWOW_t* , int* );
+
 #endif //RANDOMS_H

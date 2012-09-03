@@ -12,16 +12,16 @@
 #include "bitwise.h"
 #include "eat.h"
 
-__global__ void eat(short* psaX, int* piaBits, float* pfaSugar, float* pfaSpice)
+__global__ void eat(short* psaX, int* piaAgentBits, float* pfaSugar, float* pfaSpice)
 {
 	int iAgentID = blockIdx.x*blockDim.x+threadIdx.x;
 
 	// work with live agents only
 	if (psaX[iAgentID] > -1) {
-		BitWise	bwLocalBits;
-		bwLocalBits.asInt = piaBits[iAgentID];
-		pfaSugar[iAgentID] -= (bwLocalBits.asBits.metSugar+1);
-		pfaSpice[iAgentID] -= (bwLocalBits.asBits.metSpice+1);
+		AgentBitWise abwBits;
+		abwBits.asInt = piaAgentBits[iAgentID];
+		pfaSugar[iAgentID] -= (abwBits.asBits.metSugar+1);
+		pfaSpice[iAgentID] -= (abwBits.asBits.metSpice+1);
 	}
 	return;
 }
