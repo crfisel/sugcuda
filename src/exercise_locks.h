@@ -13,6 +13,6 @@
 #define DIE 2
 #define MATE 3
 
-int exercise_locks (short , short* , short* , int* , float* , float* , short* , int* , int* , int* , const int , int* , int* , int* );
+int exercise_locks (short , short* , short* , int* , float* , float* , short* , int* , int* , int* , int* , int* , int* , int* , int* );
 
 #endif /* EXERCISE_LOCKS_H_ */

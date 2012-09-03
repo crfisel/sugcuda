@@ -17,20 +17,23 @@
 
 
 int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, float* pfaSpice, short* psaAge, int* pigGridBits, 
-	int* pigResidents, int* piaQueueA, const int iQueueSize, int* piaQueueB, int* piDeferredQueueSize, int* piLockSuccesses)
+	int* pigResidents, int* piaQueueA, int* piPopulation, int* pihPopulation, int* piaQueueB, int* piDeferredQueueSize, int* piLockSuccesses)
 {
 	int status = EXIT_SUCCESS;
+	
+	// sync the host and device readings of population
+	CUDA_CALL(cudaMemcpy(pihPopulation,piPopulation,sizeof(int),cudaMemcpyDeviceToHost));
 
 	// fill the agent queue with increasing (later random) id's
-	int* piahTemp = (int*) malloc(iQueueSize*sizeof(int));
-	for (int i = 0; i < iQueueSize; i++) {
-		//		piahTemp[i] = rand() % iQueueSize;
+	int* piahTemp = (int*) malloc(pihPopulation[0]*sizeof(int));
+	for (int i = 0; i < pihPopulation[0]; i++) {
+		//		piahTemp[i] = rand() % pihPopulation[0];
 		piahTemp[i] = i;
 	}
-	CUDA_CALL(cudaMemcpy(piaQueueA,piahTemp,iQueueSize*sizeof(int),cudaMemcpyHostToDevice));
+	CUDA_CALL(cudaMemcpy(piaQueueA,piahTemp,pihPopulation[0]*sizeof(int),cudaMemcpyHostToDevice));
 
 	// blank the deferred queue with all bits=1
-	CUDA_CALL(cudaMemset(piaQueueB,0xFF,iQueueSize*sizeof(int)));
+	CUDA_CALL(cudaMemset(piaQueueB,0xFF,pihPopulation[0]*sizeof(int)));
 
 	// zero the deferred queue size
 	CUDA_CALL(cudaMemset(piDeferredQueueSize,0,sizeof(int)));
@@ -39,19 +42,19 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 	CUDA_CALL(cudaMemset(piLockSuccesses,0,sizeof(int)));
 
 	// call first iteration on parallel version with locking
-	int hiNumBlocks = (iQueueSize+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
+	int hiNumBlocks = (pihPopulation[0]+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
 	switch (routine) {
 		case COUNT:
 			count_occupancy<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,pigGridBits,pigResidents,
-				piaQueueA,iQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+				piaQueueA,pihPopulation[0],piaQueueB,piDeferredQueueSize,piLockSuccesses);
 			break;
 		case MOVE:
 			best_move_by_traversal<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
-				pigGridBits,pigResidents,piaQueueA,iQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+				pigGridBits,pigResidents,piaQueueA,pihPopulation[0],piaQueueB,piDeferredQueueSize,piLockSuccesses);
 			break;
 		case DIE:
 			register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,psaAge,pfaSugar,pfaSpice,
-				pigGridBits,pigResidents,piaQueueA,iQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+				pigGridBits,pigResidents,piaQueueA,pihPopulation[0],piaQueueB,piDeferredQueueSize,piLockSuccesses);
 			break;
 		default:
 			break;
@@ -68,7 +71,7 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 
 
 	// handle the deferred queue until it is empty
-	int ihActiveQueueSize = iQueueSize;
+	int ihActiveQueueSize = pihPopulation[0];
 	bool hQueue = true;
 	while (pihDeferredQueueSize[0] > 10 && pihDeferredQueueSize[0] < ihActiveQueueSize) {
 		ihActiveQueueSize = pihDeferredQueueSize[0];
@@ -77,7 +80,7 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 		CUDA_CALL(cudaMemset(piLockSuccesses,0,sizeof(int)));
 		if (hQueue) {
 			// switch the two queues and handle deferred agents
-			CUDA_CALL(cudaMemset(piaQueueA,0xFF,iQueueSize*sizeof(int)));
+			CUDA_CALL(cudaMemset(piaQueueA,0xFF,pihPopulation[0]*sizeof(int)));
 			switch (routine) {
 				case COUNT:
 					count_occupancy<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,pigGridBits,pigResidents,
@@ -96,7 +99,7 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 			}
 		} else {
 			// switch the other way
-			CUDA_CALL(cudaMemset(piaQueueB,0xFF,iQueueSize*sizeof(int)));
+			CUDA_CALL(cudaMemset(piaQueueB,0xFF,pihPopulation[0]*sizeof(int)));
 			switch (routine) {
 				case COUNT:
 					count_occupancy<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,pigGridBits,pigResidents,
