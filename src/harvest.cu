@@ -31,7 +31,7 @@ __global__ void harvest(curandStateXORWOW_t* devGridStates, short* psaX, float* 
 	case 1:
 		iAgentID = pigResidents[iAddy*MAX_OCCUPANCY];
 
-		// work with live agents only
+		// if the agent is alive
 		if (psaX[iAgentID] > -1) {
 
 			pfaSugar[iAgentID] += gbwBits.asBits.sugar;
@@ -44,7 +44,7 @@ __global__ void harvest(curandStateXORWOW_t* devGridStates, short* psaX, float* 
 		devGridStates[iAddy] = localState;
 		iAgentID = pigResidents[iAddy*MAX_OCCUPANCY+iOffset];
 
-		// work with live agents only
+		// if the agent is alive
 		if (psaX[iAgentID] > -1) {
 
 			pfaSugar[iAgentID] += gbwBits.asBits.sugar;

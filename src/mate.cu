@@ -122,7 +122,7 @@ __global__ void count_occupancy_fs(short* psaX, short* psaY, short* psgOccupancy
 			// get agent id
 			iAgentID = piaActiveQueue[iOffset];
 
-			// work with live agents only
+			// if the agent is alive
 			if (psaX[iAgentID] > -1) {
 
 				// current agent's address in the grid

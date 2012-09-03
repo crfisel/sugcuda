@@ -24,7 +24,7 @@ __global__ void generate_floats(curandStateXORWOW_t* state, float* target, float
 	/* Copy state back to global memory */
 	state[id] = localState;
 }
-__global__ void generate_ints(curandStateXORWOW_t* state, int* target, int range)
+__global__ void generate_ints(curandStateXORWOW_t* state, int* target)
 {
 	/* Copy to local memory for efficiency */
 	int id = threadIdx.x + blockIdx.x*blockDim.x;
@@ -41,11 +41,10 @@ __global__ void generate_shorts(curandStateXORWOW_t* state, short* target, short
 	/* Copy to local memory for efficiency */
 	int id = threadIdx.x + blockIdx.x*blockDim.x;
 	curandStateXORWOW_t localState = state[id];
-	float fTemp = curand_uniform(&localState) * range;
+	float fTemp = curand_uniform(&localState)*range;
 	
 	/* Generate pseudo-random shorts */
 	target[id] = fTemp;
-//	printf("%d\n", target[id]);
 
 	/* Copy state back to global memory */
 	state[id] = localState;
@@ -62,11 +61,11 @@ __global__ void initialize_gridbits(curandStateXORWOW_t* state, int* target)
 	gbwBits.asBits.isLocked = 0;
 	gbwBits.asBits.occupancy = 0;
 
-	float fTemp = curand_uniform(&localState)*1.1f;
+	float fTemp = curand_uniform(&localState)*4.1f;
 	gbwBits.asBits.sugar = fTemp;
 	gbwBits.asBits.maxSugar = gbwBits.asBits.sugar;
 
-	fTemp = curand_uniform(&localState)*1.1f;
+	fTemp = curand_uniform(&localState)*4.1f;
 	gbwBits.asBits.spice = fTemp;
 	gbwBits.asBits.maxSpice = gbwBits.asBits.spice;
 	

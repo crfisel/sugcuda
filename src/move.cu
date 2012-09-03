@@ -18,7 +18,7 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 	if (iOffset < ciActiveQueueSize) {
 		int iAgentID = piaActiveQueue[iOffset];
 
-		// work with live agents only
+		// if the agent is alive
 		if (psaX[iAgentID] > -1) {
 			// begin finding best move, searching around current (center) square
 			short sXCenter = psaX[iAgentID];
@@ -136,12 +136,22 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 								// at this point the squares are locked and valid copies are in the "copy" variables
 								iFlag = atomicAdd(piLockSuccesses,1);
 
-								// decrement occupancy at old address
-								short sOldOcc = gbwBitsCopy.asBits.occupancy;
-								gbwBitsCopy.asBits.occupancy--;
-								if (sOldOcc > 0) {
+								// before inserting new resident, check for nonzero old occupancy (negatives forbidden by unsigned short declaration)
+								// and make sure new address is not already full 
+								if (gbwBitsCopy.asBits.occupancy <= 0 || 
+									gbwNewBitsCopy.asBits.occupancy >= MAX_OCCUPANCY) {
+									
+									// unlock with no changes
+									iFlag = atomicExch(&(pigGridBits[iNewAddy]),gbwNewBits.asInt);
+									iFlag = atomicExch(&(pigGridBits[iOldAddy]),gbwBits.asInt);
+									
+									// indicate an error
+									printf("over occ %d at x:%d y:%d or under occ %d at x:%d y:%d agent %d\n",
+										gbwNewBitsCopy.asBits.occupancy,sXStore,sYStore,gbwBitsCopy.asBits.occupancy,sXCenter,sYCenter,iAgentID);
+								} else {									
 									// find match starting at end of list
-									short k = gbwBitsCopy.asBits.occupancy;
+									short k = --gbwBitsCopy.asBits.occupancy;
+
 									// remove current id - if not at the end, replace it with the one from the end and store -1 at end
 									if (pigResidents[iOldAddy*MAX_OCCUPANCY+k] == iAgentID) {
 										pigResidents[iOldAddy*MAX_OCCUPANCY+k] = -1;
@@ -153,28 +163,20 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 											pigResidents[iOldAddy*MAX_OCCUPANCY+gbwBitsCopy.asBits.occupancy] = -1;
 										}
 									}
-								} else {
-									// in case of bugs (i.e. old occupancy was already zero), report problem
-									printf ("underflow occupancy %d at x:%d y:%d agent id %d \n",sOldOcc, sXCenter,sYCenter,iAgentID);
-								}
-								// increment occupancy at new address
-								short sNewOcc = gbwNewBitsCopy.asBits.occupancy;
-								gbwNewBitsCopy.asBits.occupancy++;
-
-								// make sure new address is not already full before inserting new resident
-								if (sNewOcc < MAX_OCCUPANCY) {
-									if (pigResidents[iNewAddy*MAX_OCCUPANCY+sNewOcc] == -1) {
+									// make sure we are replacing an "empty" placemarker
+									if (pigResidents[iNewAddy*MAX_OCCUPANCY+gbwNewBitsCopy.asBits.occupancy] == -1) {
 										psaX[iAgentID] = sXStore;
 										psaY[iAgentID] = sYStore;
-										pigResidents[iNewAddy*MAX_OCCUPANCY+sNewOcc] = iAgentID;
+										pigResidents[iNewAddy*MAX_OCCUPANCY+gbwNewBitsCopy.asBits.occupancy] = iAgentID;
+										// increment occupancy at new address
+										gbwNewBitsCopy.asBits.occupancy++;
 									} else {
+										//otherwise notify about the error
 										printf ("agent replaced %d at x:%d y:%d \n",
-											pigResidents[iNewAddy*MAX_OCCUPANCY+sNewOcc],sXStore,sYStore);
+											pigResidents[iNewAddy*MAX_OCCUPANCY+gbwNewBitsCopy.asBits.occupancy],
+											sXStore,sYStore);
 									}
-								} else {
-									// indicate an occupancy overflow
-									printf ("overflow at x:%d y:%d \n",sXStore,sYStore);
-								}
+								} 
 								// unlock and update global occupancy values
 								gbwNewBitsCopy.asBits.isLocked = 0;
 								iFlag = atomicExch(&(pigGridBits[iNewAddy]),gbwNewBitsCopy.asInt);
@@ -201,6 +203,7 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 __global__ void best_move_by_traversal_fs(short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, 
 	float* pfaSpice, int* pigGridBits, int* pigResidents, int* piaActiveQueue, const int ciActiveQueueSize)
 {
+
 	int iAgentID;
 
 	// only the 1,1 block is active
@@ -211,7 +214,7 @@ __global__ void best_move_by_traversal_fs(short* psaX, short* psaY, int* piaAgen
 			// get the iAgentID from the active agent queue
 			iAgentID = piaActiveQueue[iOffset];
 
-			// work with live agents only
+			// if the agent is alive
 			if (psaX[iAgentID] > -1) {
 
 				// begin finding best move, searching around current (center) square
@@ -283,53 +286,53 @@ __global__ void best_move_by_traversal_fs(short* psaX, short* psaY, int* piaAgen
 					int iOldAddy = sXCenter*GRID_SIZE+sYCenter;
 					int iNewAddy = sXStore*GRID_SIZE+sYStore;
 
-					// decrement occupancy at old address
 					// unpack grid bits
 					gbwBits.asInt = pigGridBits[iOldAddy];
-					// decrement occupancy at old address
-					short sOldOcc = gbwBits.asBits.occupancy;
-					gbwBits.asBits.occupancy--;
-					if (sOldOcc > 0) {
+					GridBitWise gbwNewBits;
+					gbwNewBits.asInt = pigGridBits[iNewAddy];
+
+					// before inserting new resident, check for nonzero old occupancy (negatives forbidden by unsigned short declaration)
+					// and make sure new address is not already full 
+					if (gbwBits.asBits.occupancy <= 0 || 
+						gbwNewBits.asBits.occupancy >= MAX_OCCUPANCY) {
+									
+						// indicate an error
+						printf("over occ %d at x:%d y:%d or under occ %d at x:%d y:%d agent %d\n",
+							gbwNewBits.asBits.occupancy,sXStore,sYStore,gbwBits.asBits.occupancy,sXCenter,sYCenter,iAgentID);
+
+					} else {			
+
 						// find match starting at end of list
-						short k = gbwBits.asBits.occupancy;
-						// remove current id - if it is not at the end, replace it with the one from the end and store -1 at end
+						short k = --gbwBits.asBits.occupancy;
+
+						// remove current id - if not at the end, replace it with the one from the end and store -1 at end
 						if (pigResidents[iOldAddy*MAX_OCCUPANCY+k] == iAgentID) {
 							pigResidents[iOldAddy*MAX_OCCUPANCY+k] = -1;
 						} else {
 							while (pigResidents[iOldAddy*MAX_OCCUPANCY+k] != iAgentID && k >= 0) {k--;}
 							if (k != gbwBits.asBits.occupancy) {
-								pigResidents[iOldAddy*MAX_OCCUPANCY+k] = 
-										pigResidents[iOldAddy*MAX_OCCUPANCY+gbwBits.asBits.occupancy];
+								pigResidents[iOldAddy*MAX_OCCUPANCY+k] = pigResidents[iOldAddy*MAX_OCCUPANCY+gbwBits.asBits.occupancy];
 								pigResidents[iOldAddy*MAX_OCCUPANCY+gbwBits.asBits.occupancy] = -1;
-							} 
+							}
 						}
-					} else {
-						// in case of bugs (i.e. old occupancy was already zero), report problem
-						printf ("underflow occupancy %d at x:%d y:%d agent id %d \n",sOldOcc, sXCenter,sYCenter,iAgentID);
-					}
-					// increment occupancy at new address
-					// unpack grid bits
-					GridBitWise gbwNewBits;
-					gbwNewBits.asInt = pigGridBits[iNewAddy];
-					short sNewOcc = gbwNewBits.asBits.occupancy;
-					gbwNewBits.asBits.occupancy++;
-					// make sure new address is not already full before inserting new resident
-					if (sNewOcc < MAX_OCCUPANCY) {
-						if (pigResidents[iNewAddy*MAX_OCCUPANCY+sNewOcc] == -1) {
+						
+						// make sure we are replacing an "empty" placemarker
+						if (pigResidents[iNewAddy*MAX_OCCUPANCY+gbwNewBits.asBits.occupancy] == -1) {
 							psaX[iAgentID] = sXStore;
 							psaY[iAgentID] = sYStore;
-							pigResidents[iNewAddy*MAX_OCCUPANCY+sNewOcc] = iAgentID;
+							pigResidents[iNewAddy*MAX_OCCUPANCY+gbwNewBits.asBits.occupancy] = iAgentID;
+
+							// increment occupancy at new address
+							gbwNewBits.asBits.occupancy++;
 						} else {
-							printf ("agent replaced %d at x:%d y:%d \n",
-								pigResidents[iNewAddy*MAX_OCCUPANCY+sNewOcc],sXStore,sYStore);
-						}
-					} else {
-						// indicate an occupancy overflow
-						printf ("overflow at x:%d y:%d \n",sXStore,sYStore);
+							//otherwise notify about the error
+							printf ("agent replaced %d at x:%d y:%d \n",pigResidents[iNewAddy*MAX_OCCUPANCY+gbwNewBits.asBits.occupancy],sXStore,sYStore);
+						} 
+						// update global occupancy values
+						int iFlag = atomicExch(&(pigGridBits[iNewAddy]),gbwNewBits.asInt);
+						iFlag = atomicExch(&(pigGridBits[iOldAddy]),gbwBits.asInt);
 					}
-
 				}
-
 			}
 		}
 	}
@@ -358,7 +361,7 @@ int move (short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, float* p
 	// zero the successful locks counter
 	CUDA_CALL(cudaMemset(piLockSuccesses,0,sizeof(int)));
 
-	// find best move for agents at the head of their square's resident list
+	// find best move for agents
 	int hiNumBlocks = (iQueueSize+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
 	best_move_by_traversal<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
 		pigGridBits,pigResidents,piaQueueA,iQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
@@ -376,7 +379,7 @@ int move (short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, float* p
 	// handle the deferred queue until it is empty
 	int ihActiveQueueSize = iQueueSize;
 	bool hQueue = true;
-	while (pihDeferredQueueSize[0] > 100 && pihDeferredQueueSize[0] < ihActiveQueueSize) {
+	while (pihDeferredQueueSize[0] > 10 && pihDeferredQueueSize[0] < ihActiveQueueSize) {
 		ihActiveQueueSize = pihDeferredQueueSize[0];
 		hiNumBlocks = (ihActiveQueueSize+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
 		CUDA_CALL(cudaMemset(piDeferredQueueSize,0,sizeof(int)));

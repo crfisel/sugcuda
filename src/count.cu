@@ -11,7 +11,6 @@ __global__ void count_occupancy(short* psaX, short* psaY, int* pigGridBits, int*
 	int iAgentID;
 	int iAddy;
 	int iTemp;
-	unsigned short sOldOcc;
 	bool lockFailed = false;
 
 	// get the iAgentID from the active agent queue
@@ -19,7 +18,7 @@ __global__ void count_occupancy(short* psaX, short* psaY, int* pigGridBits, int*
 	if (iOffset < ciActiveQueueSize) {
 		iAgentID = piaActiveQueue[iOffset];
 
-		// work with live agents only
+		// if the agent is alive
 		if (psaX[iAgentID] > -1) {
 
 			// current agent's address in the grid
@@ -31,39 +30,51 @@ __global__ void count_occupancy(short* psaX, short* psaY, int* pigGridBits, int*
 			
 			// test if square is locked
 			if (gbwBits.asBits.isLocked != 0) {
+
 				// if so, lock failed
 				lockFailed = true;
 			} else {
+
 				// if so, make a copy, but indicating locked
 				GridBitWise gbwBitsCopy = gbwBits;
 				gbwBitsCopy.asBits.isLocked = 1;
 
 				// now lock the current address if possible
 				iTemp = atomicCAS(&(pigGridBits[iAddy]), gbwBits.asInt, gbwBitsCopy.asInt);
+
 				// test lock
 				if (iTemp != gbwBits.asInt) {
 					lockFailed = true;
+
 				} else {
-					// at this point the square is locked and a valid copy is in gbwBitsCopy
+
+					// at this point the square is locked and a valid copy (indicating locked) is in gbwBitsCopy
 					iTemp = atomicAdd(piLockSuccesses,1);
-					// now increment square occupancy
-					sOldOcc = gbwBitsCopy.asBits.occupancy;
-					gbwBitsCopy.asBits.occupancy++;
 					
 					// check for overflow
-					if (sOldOcc < MAX_OCCUPANCY) {
+					if (gbwBitsCopy.asBits.occupancy < MAX_OCCUPANCY) {
 
 						// insert the resident at the next position in the residents list
-						pigResidents[iAddy*MAX_OCCUPANCY+sOldOcc] = iAgentID;
-					
-					} else {
-						// indicate an occupancy overflow, and do nothing to the residents list
-						printf ("overflow occupancy %d at x:%d y:%d \n",sOldOcc+1,psaX[iAgentID], psaY[iAgentID]);
-					}
+						pigResidents[iAddy*MAX_OCCUPANCY+gbwBitsCopy.asBits.occupancy] = iAgentID;
+
+						// now increment square occupancy
+						gbwBitsCopy.asBits.occupancy++;
 			
-				// unlock the square (and apply the change to occupancy)
-				gbwBitsCopy.asBits.isLocked = 0;
-				iTemp = atomicExch(&(pigGridBits[iAddy]),gbwBitsCopy.asInt);
+						// unlock the square and apply the change to occupancy
+						gbwBitsCopy.asBits.isLocked = 0;
+						if (gbwBitsCopy.asBits.occupancy == 0) {
+							printf("agent %d x %d y %d\n",iAgentID,psaX[iAgentID],psaY[iAgentID]);
+						}
+						iTemp = atomicExch(&(pigGridBits[iAddy]),gbwBitsCopy.asInt);
+
+					} else {
+						
+						// unlock with no changes					
+						iTemp = atomicExch(&(pigGridBits[iAddy]),gbwBits.asInt);
+
+						// indicate an occupancy overflow
+						printf ("overflow occupancy %d at x:%d y:%d \n",gbwBitsCopy.asBits.occupancy,psaX[iAgentID], psaY[iAgentID]);
+					}
 				}
 			}
 			if (lockFailed) {
@@ -82,7 +93,6 @@ __global__ void count_occupancy_fs(short* psaX, short* psaY, int* pigGridBits, i
 {
 	int iAgentID;
 	int iAddy;
-	short sOldOcc;
 
 	// only the 1,1 block is active
 	if (threadIdx.x == 0 && blockIdx.x == 0) {
@@ -91,7 +101,7 @@ __global__ void count_occupancy_fs(short* psaX, short* psaY, int* pigGridBits, i
 			// get agent id
 			iAgentID = piaActiveQueue[iOffset];
 
-			// work with live agents only
+			// if the agent is alive
 			if (psaX[iAgentID] > -1) {
 				// current agent's address in the grid
 				iAddy = psaX[iAgentID]*GRID_SIZE+psaY[iAgentID];
@@ -101,18 +111,23 @@ __global__ void count_occupancy_fs(short* psaX, short* psaY, int* pigGridBits, i
 				gbwBits.asInt = pigGridBits[iAddy];
 
 				// no locks necessary, so increment square occupancy
-				sOldOcc = gbwBits.asBits.occupancy;
-				gbwBits.asBits.occupancy++;
 				
 				// check for overflow
-				if (sOldOcc < MAX_OCCUPANCY) {
+				if (gbwBits.asBits.occupancy < MAX_OCCUPANCY) {
+				
 					// insert the resident at the next position in the residents list
-					pigResidents[iAddy*MAX_OCCUPANCY+sOldOcc] = iAgentID;
-					// update occupancy in pigGridBits - no need for atomics
+					pigResidents[iAddy*MAX_OCCUPANCY+gbwBits.asBits.occupancy] = iAgentID;
+					
+					// update occupancy in pigGridBits - no need for locks or atomics
+					gbwBits.asBits.occupancy++;
+					if (gbwBits.asBits.occupancy == 0) {
+							printf("agent %d x %d y %d\n",iAgentID,psaX[iAgentID],psaY[iAgentID]);
+						}
 					pigGridBits[iAddy] = gbwBits.asInt;
+					
 				} else {
-					// indicate an occupancy overflow and do nothing to residents list
-					printf ("overflow occupancy %d at x:%d y:%d \n",sOldOcc+1, psaX[iAgentID], psaY[iAgentID]);
+					// indicate an occupancy overflow, but otherwise do nothing
+					printf ("overflow occupancy %d at x:%d y:%d \n",gbwBits.asBits.occupancy, psaX[iAgentID], psaY[iAgentID]);
 				}
 			}
 		}
@@ -160,7 +175,7 @@ int count(short* psaX, short* psaY, int* pigGridBits, int* pigResidents, int* pi
 	// handle the deferred queue until it is empty
 	int ihActiveQueueSize = iQueueSize;
 	bool hQueue = true;
-	while (pihDeferredQueueSize[0] > (0.01f*iQueueSize) && pihDeferredQueueSize[0] < ihActiveQueueSize) {
+	while (pihDeferredQueueSize[0] > 10 && pihDeferredQueueSize[0] < ihActiveQueueSize) {
 		ihActiveQueueSize = pihDeferredQueueSize[0];
 		hiNumBlocks = (ihActiveQueueSize+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
 		CUDA_CALL(cudaMemset(piDeferredQueueSize,0,sizeof(int)));
@@ -182,7 +197,7 @@ int count(short* psaX, short* psaY, int* pigGridBits, int* pigResidents, int* pi
 	}
 
 	// for persistent lock failures, use the failsafe version
-	if (pihDeferredQueueSize[0] <= 100 || pihDeferredQueueSize[0] >= ihActiveQueueSize) {
+	if (pihDeferredQueueSize[0] <= 10 || pihDeferredQueueSize[0] >= ihActiveQueueSize) {
 		ihActiveQueueSize = pihDeferredQueueSize[0];
 		if (hQueue) {
 			count_occupancy_fs<<<1,1>>>(psaX,psaY,pigGridBits,pigResidents,piaQueueB,ihActiveQueueSize);
@@ -192,42 +207,7 @@ int count(short* psaX, short* psaY, int* pigGridBits, int* pigResidents, int* pi
 		}
 		cudaDeviceSynchronize();
 	}
-
-/*	// check for occupancy underflow errors
-	int* pighGridBits = (int*) malloc(GRID_SIZE*GRID_SIZE*sizeof(int));
-	int* pighTest = (int*) malloc(GRID_SIZE*GRID_SIZE*sizeof(int));
-	int* pighResidents = (int*) malloc(GRID_SIZE*GRID_SIZE*MAX_OCCUPANCY*sizeof(int));
-	CUDA_CALL(cudaMemcpy(pighGridBits,pigGridBits,GRID_SIZE*GRID_SIZE*sizeof(int),cudaMemcpyDeviceToHost));
-	CUDA_CALL(cudaMemcpy(pighResidents,pigResidents,GRID_SIZE*GRID_SIZE*MAX_OCCUPANCY*sizeof(int),cudaMemcpyDeviceToHost));
-
-	GridBitWise gbwTemp;
-	int iTotal = 0;
-	for (int k = 0; k < GRID_SIZE*GRID_SIZE; k++) {
-		gbwTemp.asInt = pighGridBits[k];
-		if (gbwTemp.asBits.occupancy <= 0) { 
-			for (int l = 0; l < MAX_OCCUPANCY; l++) {
-				if(pighResidents[k*MAX_OCCUPANCY+l] > -1) {
-					pighTest[k] = k;
-					iTotal++;
-				}
-			}
-		}
-	}
-	printf("total underflows %d\n",iTotal);
-
-	for (int k = 0; k < iTotal; k++) {
-		gbwTemp.asInt = pighGridBits[pighTest[k]];
-		printf("addy %d occupancy %d ",pighTest[k],gbwTemp.asBits.occupancy);
-		for (int l = 0; l < MAX_OCCUPANCY; l++) {
-			printf("%d ",pighResidents[pighTest[k]*MAX_OCCUPANCY+l]);
-		}
-		printf("\n");
-	}
-	free(pighGridBits);
-	free(pighResidents);
-	free(pighTest);
-*/
-			
+		
 	// cleanup
 	free(pihLockSuccesses);
 	free(pihDeferredQueueSize);

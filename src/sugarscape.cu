@@ -12,6 +12,7 @@
 #include <curand_kernel.h>
 #include "symbolic_constants.h"
 #include "count.h"
+#include "rngs.h"
 #include "randoms.h"
 #include "move.h"
 #include "harvest.h"
@@ -35,14 +36,6 @@ int main (int argc , char* argv [])
 
 	// create agent arrays on device
 	int hPopulation = NUM_AGENTS;
-
-	// position in x
-	short* psaX;
-	CUDA_CALL(cudaMalloc((void**)&psaX,hPopulation*sizeof(short)));
-
-	//position in y
-	short* psaY;
-	CUDA_CALL(cudaMalloc((void**)&psaY,hPopulation*sizeof(short)));
 
 	// bit storage
 	int* piaAgentBits;
@@ -68,12 +61,12 @@ int main (int argc , char* argv [])
 	// for large numbers of agents, tile the prngs
 	if (hPopulation > NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK) {
 		for (int i = 0; i < hNumTiles; i++) {
+/*			generate_shorts<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
+					devAgentStates,&(psaX[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),(GRID_SIZE));
 			generate_shorts<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
-					devAgentStates,&(psaX[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),(GRID_SIZE-1));
-			generate_shorts<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
-					devAgentStates,&(psaY[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),(GRID_SIZE-1));
-			generate_ints<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
-					devAgentStates,&(piaAgentBits[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),INT_MAX);
+					devAgentStates,&(psaY[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),(GRID_SIZE));
+*/			generate_ints<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
+					devAgentStates,&(piaAgentBits[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]));
 			generate_floats<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
 					devAgentStates,&(pfaSugar[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),30.0f);
 			generate_floats<<<NUM_THREADS_PER_BLOCK,NUM_THREADS_PER_BLOCK>>>(
@@ -82,9 +75,9 @@ int main (int argc , char* argv [])
 					devAgentStates,&(psaAge[i*NUM_THREADS_PER_BLOCK*NUM_THREADS_PER_BLOCK]),100);
 		}
 	} else {
-		generate_shorts<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,psaX,GRID_SIZE-1);
-		generate_shorts<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,psaY,GRID_SIZE-1);
-		generate_ints<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,piaAgentBits,INT_MAX);
+/*		generate_shorts<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,psaX,GRID_SIZE);
+		generate_shorts<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,psaY,GRID_SIZE);
+*/		generate_ints<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,piaAgentBits);
 		generate_floats<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,pfaSugar,30.0f);
 		generate_floats<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,pfaSpice,30.0f);
 		generate_shorts<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(devAgentStates,psaAge,100);
@@ -128,6 +121,26 @@ int main (int argc , char* argv [])
 	int* piLockSuccesses;
 	CUDA_CALL(cudaMalloc((void**)&piLockSuccesses,sizeof(int)));
 	
+	// position in x
+	short* psaX;
+	CUDA_CALL(cudaMalloc((void**)&psaX,hPopulation*sizeof(short)));
+	short* psahTemp = (short*) malloc(hPopulation*sizeof(short));
+	for (int i = 0; i < hPopulation; i++) {
+		psahTemp[i] = Random()*(GRID_SIZE-1);
+	}
+	CUDA_CALL(cudaMemcpy(psaX,psahTemp,hPopulation*sizeof(short),cudaMemcpyHostToDevice));
+
+	//position in y
+	short* psaY;
+	CUDA_CALL(cudaMalloc((void**)&psaY,hPopulation*sizeof(short)));
+	// fill iTemp arrays with random numbers and copy to device
+	for (int i = 0; i < hPopulation; i++) {
+		psahTemp[i] = Random()*(GRID_SIZE-1);
+	}
+	CUDA_CALL(cudaMemcpy(psaY,psahTemp,hPopulation*sizeof(short),cudaMemcpyHostToDevice));
+
+	free(psahTemp);
+
 	cudaDeviceSynchronize();
 
 	// timing
@@ -166,34 +179,12 @@ int main (int argc , char* argv [])
 	cudaEventElapsedTime(&elapsed_time, start, end);
 	printf ("Moving %d agents takes %d milliseconds\n",(int) hPopulation, (int) elapsed_time);
 
-	// time harvest
+	// time harvest, meal and aging
 	cudaEventRecord(start,0);
 
 	harvest<<<GRID_SIZE,GRID_SIZE>>>(devGridStates,psaX,pfaSugar,pfaSpice,pigGridBits,pigResidents);
 
-	//   end timing
-	cudaThreadSynchronize();
-	cudaEventSynchronize(end);
-	cudaEventRecord(end,0);
-	cudaEventSynchronize(end);
-	cudaEventElapsedTime(&elapsed_time, start, end);
-	printf ("Harvesting %d grid squares takes %d milliseconds\n",(int) GRID_SIZE*GRID_SIZE, (int) elapsed_time);
-
-	// time meal
-	cudaEventRecord(start,0);
-
 	eat<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,piaAgentBits,pfaSugar,pfaSpice);
-
-	//   end timing
-	cudaThreadSynchronize();
-	cudaEventSynchronize(end);
-	cudaEventRecord(end,0);
-	cudaEventSynchronize(end);
-	cudaEventElapsedTime(&elapsed_time, start, end);
-	printf ("Feeding %d agents takes %d milliseconds\n",(int) hPopulation, (int) elapsed_time);
-
-	// time aging
-	cudaEventRecord(start,0);
 
 	age<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaAge);
 
@@ -204,7 +195,7 @@ int main (int argc , char* argv [])
 	cudaEventSynchronize(end);
 	cudaEventElapsedTime(&elapsed_time, start, end);
 
-	printf ("Aging %d agents takes %d milliseconds\n",(int) hPopulation, (int) elapsed_time);
+	printf ("Harvesting %d squares and feeding and aging %d agents takes %d milliseconds\n",(int) GRID_SIZE*GRID_SIZE, (int) hPopulation, (int) elapsed_time);
 
 	// time dying
 	cudaEventRecord(start,0);

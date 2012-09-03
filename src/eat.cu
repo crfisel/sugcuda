@@ -16,7 +16,7 @@ __global__ void eat(short* psaX, int* piaAgentBits, float* pfaSugar, float* pfaS
 {
 	int iAgentID = blockIdx.x*blockDim.x+threadIdx.x;
 
-	// work with live agents only
+	// if the agent is alive
 	if (psaX[iAgentID] > -1) {
 		AgentBitWise abwBits;
 		abwBits.asInt = piaAgentBits[iAgentID];

@@ -12,7 +12,7 @@ __global__ void setup_kernel(curandStateXORWOW_t* );
 
 __global__ void generate_floats(curandStateXORWOW_t* , float* , float );
 
-__global__ void generate_ints(curandStateXORWOW_t* , int* , int );
+__global__ void generate_ints(curandStateXORWOW_t* , int* );
 
 __global__ void generate_shorts(curandStateXORWOW_t* , short* , short );
 

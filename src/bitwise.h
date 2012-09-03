@@ -20,12 +20,12 @@ union GridBitWise
 	struct GridBitWiseType
 	{
 		unsigned short isLocked : 1;
-		unsigned short occupancy : 7;
+		unsigned short occupancy : 4;
 		unsigned short sugar : 4;
 		unsigned short spice : 4;
 		unsigned short maxSugar : 4;
 		unsigned short maxSpice : 4;
-		unsigned short pad : 8;
+		unsigned short pad : 10;
 	} asBits;
     	int asInt;
 };
