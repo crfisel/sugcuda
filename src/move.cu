@@ -10,6 +10,7 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 	float* pfaSpice, int* pigGridBits, int* pigResidents, int* piaActiveQueue, const int ciActiveQueueSize, 
 	int* piaDeferredQueue, int* piDeferredQueueSize, int* piLockSuccesses)
 {
+	GridBitWise gbwBits;
 	int iFlag = 0;
 	bool lockFailed = false;
 
@@ -29,7 +30,6 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 				// agent's current address in the grid
 				int iOldAddy = sXCenter*GRID_SIZE+sYCenter;
 				// unpack grid bits
-				GridBitWise gbwBits;
 				gbwBits.asInt = pigGridBits[iOldAddy];
 			
 				// test if old square is locked
@@ -120,7 +120,7 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 __global__ void best_move_by_traversal_fs(short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, 
 	float* pfaSpice, int* pigGridBits, int* pigResidents, int* piaActiveQueue, const int ciActiveQueueSize)
 {
-
+	GridBitWise gbwBits;
 	int iAgentID;
 
 	// only the 1,1 block is active
@@ -144,7 +144,6 @@ __global__ void best_move_by_traversal_fs(short* psaX, short* psaY, int* piaAgen
 					int iNewAddy = sXStore*GRID_SIZE+sYStore;
 
 					// unpack grid bits
-					GridBitWise gbwBits;
 					gbwBits.asInt = pigGridBits[iOldAddy];
 					GridBitWise gbwNewBits;
 					gbwNewBits.asInt = pigGridBits[iNewAddy];

@@ -1,5 +1,6 @@
 #include <cuda.h>
 #include <stdio.h>
+#include <limits.h>
 #include "symbolic_constants.h"
 #include "bitwise.h"
 #include "move.h"
@@ -68,9 +69,10 @@ __global__ void register_deaths(short* psaX, short* psaY, int* piaAgentBits, flo
 
 						} else {
 							remove_resident(&(gbwBitsCopy.asInt),iAddy,pigResidents,iAgentID);
-
+							
+							// TODO: INHERITANCE MUST BE HANDLED BEFORE X POSITION INFO IS ERASED
 							// mark agent as dead
-							psaX[iAgentID] *= -1;
+							psaX[iAgentID] = SHRT_MIN;
 							
 							// unlock and update global occupancy values
 							gbwBitsCopy.asBits.isLocked = 0;
@@ -128,8 +130,9 @@ __global__ void register_deaths_fs(short* psaX, short* psaY, int* piaAgentBits,
 					} else {
 						remove_resident(&(gbwBits.asInt),iAddy,pigResidents,iAgentID);
 
+						// TODO: INHERITANCE MUST BE HANDLED BEFORE X POSITION INFO IS ERASED
 						// mark agent as dead
-						psaX[iAgentID] *= -1;
+						psaX[iAgentID] = SHRT_MIN;
 								
 						// update global occupancy values
 						int iFlag = atomicExch(&(pigGridBits[iAddy]),gbwBits.asInt);

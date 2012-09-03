@@ -5,16 +5,13 @@
  *      Author: C. Richard Fisel
  */
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <cuda.h>
-#include <curand_kernel.h>
 #include "symbolic_constants.h"
 #include "bitwise.h"
-#include "randoms.h"
 #include "harvest.h"
 
-__global__ void harvest(unsigned int* theRandoms, short* psaX, float* pfaSugar, float* pfaSpice,
+__global__ void harvest(unsigned int* pigRandoms, short* psaX, float* pfaSugar, float* pfaSpice,
 		int* pigGridBits, int* pigResidents)
 {
 	short sX = blockIdx.x;
@@ -36,10 +33,13 @@ __global__ void harvest(unsigned int* theRandoms, short* psaX, float* pfaSugar, 
 
 			pfaSugar[iAgentID] += gbwBits.asBits.sugar;
 			pfaSpice[iAgentID] += gbwBits.asBits.spice;
+			gbwBits.asBits.sugar = 0;
+			gbwBits.asBits.spice = 0;
+			pigGridBits[iAddy] = gbwBits.asInt;
 		}
 		break;
 	default:
-		float fTemp = theRandoms[iAddy]*gbwBits.asBits.occupancy/UINT_MAX;
+		float fTemp = pigRandoms[iAddy]*gbwBits.asBits.occupancy/UINT_MAX;
 		iOffset = fTemp;
 		iAgentID = pigResidents[iAddy*MAX_OCCUPANCY+iOffset];
 
@@ -48,6 +48,9 @@ __global__ void harvest(unsigned int* theRandoms, short* psaX, float* pfaSugar, 
 
 			pfaSugar[iAgentID] += gbwBits.asBits.sugar;
 			pfaSpice[iAgentID] += gbwBits.asBits.spice;
+			gbwBits.asBits.sugar = 0;
+			gbwBits.asBits.spice = 0;
+			pigGridBits[iAddy] = gbwBits.asInt;
 		}
 		break;
 	}

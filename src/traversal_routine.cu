@@ -24,7 +24,6 @@
 			// weighting its sugar and spice by need, metabolism, and occupancy
 			int iTemp = sXCenter*GRID_SIZE+sYCenter;
 			// reinterpret grid bits
-			GridBitWise gbwBits;
 			gbwBits.asInt = pigGridBits[iTemp];
 			float fBest = gbwBits.asBits.spice*spiceScale/(gbwBits.asBits.occupancy+0.01f)
 				+ gbwBits.asBits.sugar*sugarScale/(gbwBits.asBits.occupancy+0.01f);
