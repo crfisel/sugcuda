@@ -1,17 +1,14 @@
 #include <cuda.h>
 #include <stdio.h>
-#include "symbolic_constants.h"
-#include "bitwise.h"
+#include "constants.h"
+#include "utilities.h"
 #include "move.h"
 
 // this kernel has one thread per agent, each traversing the local neighborhood prescribed by its vision
 // NOTE: NUM_AGENTS is an int, GRID_SIZE is a short
-__global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, 
-	float* pfaSpice, int* pigGridBits, int* pigResidents, int* piaActiveQueue, const int ciActiveQueueSize, 
-	int* piaDeferredQueue, int* piDeferredQueueSize, int* piLockSuccesses, int* piStaticAgents)
+__global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaBits, int* pigBits, int* pigResidents, float* pfaSugar, float* pfaSpice,
+		int* piaActiveQueue, int* piaDeferredQueue, const int ciActiveQueueSize, int* piDeferredQueueSize, int* piLockSuccesses, int* piStaticAgents)
 {
-	GridBitWise gbwBits;
-	GridBitWise gbwNewBits;
 	int iFlag = 0;
 	bool lockSuccess = false;
 	int iOldAddy;
@@ -33,33 +30,32 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 				// if a move is warranted, lock old and new address
 				iOldAddy = sXCenter*GRID_SIZE+sYCenter;
 				// lock agent's current address in the grid
-				lockSuccess = lock(iOldAddy,&gbwBits,pigGridBits);
+				lockSuccess = lock_location(iOldAddy,pigBits);
 				if (lockSuccess) {
 					// if lock succeeded, lock agent's new address in the grid
 					iNewAddy = sXStore*GRID_SIZE+sYStore;
-					lockSuccess = lockSuccess && lock(iNewAddy,&gbwNewBits,pigGridBits);
+					lockSuccess = lockSuccess && lock_location(iNewAddy,pigBits);
 					if (lockSuccess) {
 						// note that both locks succeeded
 						iFlag = atomicAdd(piLockSuccesses,1);
 
-						// valid copies of the grid bits of both squares are in the "gbw" variables
 						// before moving the resident, check that old occupancy was positive
 						// and that new address is not already full 
-						if (gbwBits.asBits.occupancy > 0 && gbwNewBits.asBits.occupancy < MAX_OCCUPANCY) {
-							remove_resident(&(gbwBits.asInt),iOldAddy,pigResidents,iAgentID);
-							insert_resident(&(gbwNewBits.asInt),iNewAddy,pigResidents,psaX,psaY,sXStore,sYStore,iAgentID);
+						int iTempOld = pigBits[iOldAddy];
+						int iTempNew = pigBits[iNewAddy];
+						if (((iTempOld&occupancyMask)>>occupancyShift) > 0 && ((iTempNew&occupancyMask)>>occupancyShift) < MAX_OCCUPANCY) {
+							remove_resident(iAgentID,iOldAddy,pigBits,pigResidents);
+							add_resident(iAgentID,iNewAddy,pigBits,pigResidents,psaX,psaY);
 						} else {
 							// indicate an error
-							printf("over occ %d to x:%d y:%d or under occ %d from x:%d y:%d agent %d\n",
-								gbwNewBits.asBits.occupancy,sXStore,sYStore,gbwBits.asBits.occupancy,sXCenter,sYCenter,iAgentID);
+							printf("over occ %d to addy %d or under occ %d from addy %d agent %d\n",
+									((iTempNew&occupancyMask)>>occupancyShift),iNewAddy,((iTempOld&occupancyMask)>>occupancyShift),iOldAddy,iAgentID);
 						} 
 						// unlock and update global occupancy values
-						gbwNewBits.asBits.isLocked = 0;
-						iFlag = atomicExch(&(pigGridBits[iNewAddy]),gbwNewBits.asInt);
+						unlock_location(iNewAddy,pigBits);
 					}
-					// unlock and update global occupancy values
-					gbwBits.asBits.isLocked = 0;
-					iFlag = atomicExch(&(pigGridBits[iOldAddy]),gbwBits.asInt);	
+					// unlock old address
+					unlock_location(iOldAddy,pigBits);
 				}
 				// if a move was warranted, but lock failures prevented it, defer
 				if (!lockSuccess) {
@@ -75,10 +71,9 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 
 // this "failsafe" kernel has one thread, for persistent lock failures
 // NOTE: NUM_AGENTS is an int, GRID_SIZE is a short
-__global__ void best_move_by_traversal_fs(short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, 
-	float* pfaSpice, int* pigGridBits, int* pigResidents, int* piaActiveQueue, const int ciActiveQueueSize, int* piStaticAgents)
+__global__ void best_move_by_traversal_fs(short* psaX, short* psaY, int* piaBits, int* pigBits, int* pigResidents,
+		float* pfaSugar, float* pfaSpice, int* piaActiveQueue, const int ciActiveQueueSize, int* piStaticAgents)
 {
-	GridBitWise gbwBits;
 	int iAgentID;
 
 	// only the 1,1 block is active
@@ -102,28 +97,17 @@ __global__ void best_move_by_traversal_fs(short* psaX, short* psaY, int* piaAgen
 					int iOldAddy = sXCenter*GRID_SIZE+sYCenter;
 					int iNewAddy = sXStore*GRID_SIZE+sYStore;
 
-					// unpack grid bits
-					gbwBits.asInt = pigGridBits[iOldAddy];
-					GridBitWise gbwNewBits;
-					gbwNewBits.asInt = pigGridBits[iNewAddy];
-
-					// before inserting new resident, check for nonzero old occupancy (negatives forbidden by unsigned short declaration)
-					// and make sure new address is not already full 
-					if (gbwBits.asBits.occupancy <= 0 || 
-						gbwNewBits.asBits.occupancy >= MAX_OCCUPANCY) {
-									
+					// before moving the resident, check that old occupancy was positive
+					// and that new address is not already full
+					int iTempOld = pigBits[iOldAddy];
+					int iTempNew = pigBits[iNewAddy];
+					if (((iTempOld&occupancyMask)>>occupancyShift) > 0 && ((iTempNew&occupancyMask)>>occupancyShift) < MAX_OCCUPANCY) {
+						remove_resident(iAgentID,iOldAddy,pigBits,pigResidents);
+						add_resident(iAgentID,iNewAddy,pigBits,pigResidents,psaX,psaY);
+					} else {
 						// indicate an error
-						printf("over occ %d at x:%d y:%d or under occ %d at x:%d y:%d agent %d\n",
-							gbwNewBits.asBits.occupancy,sXStore,sYStore,gbwBits.asBits.occupancy,sXCenter,sYCenter,iAgentID);
-
-					} else {			
-
-						remove_resident(&(gbwBits.asInt),iOldAddy,pigResidents,iAgentID);
-						insert_resident(&(gbwNewBits.asInt),iNewAddy,pigResidents,psaX,psaY,sXStore,sYStore,iAgentID);
-
-						// update global occupancy values
-						int iFlag = atomicExch(&(pigGridBits[iNewAddy]),gbwNewBits.asInt);
-						iFlag = atomicExch(&(pigGridBits[iOldAddy]),gbwBits.asInt);
+						printf("over occ %d to addy %d or under occ %d from addy %d agent %d\n",
+								((iTempNew&occupancyMask)>>occupancyShift),iNewAddy,((iTempOld&occupancyMask)>>occupancyShift),iOldAddy,iAgentID);
 					}
 				}
 			}

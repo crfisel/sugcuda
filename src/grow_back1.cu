@@ -7,18 +7,17 @@
 
 #include <stdlib.h>
 #include <cuda.h>
-#include "symbolic_constants.h"
-#include "bitwise.h"
+#include "constants.h"
 #include "grow_back1.h"
 
-__global__ void grow_back1(int* pigGridBits)
+__global__ void grow_back1(int* pigBits)
 {
 	int iAddy = threadIdx.x + blockIdx.x*blockDim.x;
-	GridBitWise gbwBits;
-
-	gbwBits.asInt = pigGridBits[iAddy];
-	if (gbwBits.asBits.sugar < gbwBits.asBits.maxSugar) gbwBits.asBits.sugar++;
-	if (gbwBits.asBits.spice < gbwBits.asBits.maxSpice) gbwBits.asBits.spice++;
-	pigGridBits[iAddy] = gbwBits.asInt;
+	int iTemp = pigBits[iAddy];
+	if ((iTemp&sugarMask)>>sugarShift < (iTemp&maxSugarMask)>>maxSugarShift)
+		iTemp += sugarIncrement;
+	if ((iTemp&spiceMask)>>spiceShift < (iTemp&maxSpiceMask)>>maxSpiceShift)
+		iTemp += spiceIncrement;
+	pigBits[iAddy] = iTemp;
 	return;
 }

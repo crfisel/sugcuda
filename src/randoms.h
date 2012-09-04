@@ -41,7 +41,7 @@ __forceinline__ __device__ float stretched_value(short x, short y)
 	return (float) sTemp;
 }
 
-__global__ void setup_kernel(curandState* );
+__global__ void setup_kernel(curandState* pStates);
 
 __global__ void initialize_food(float* pfaSugar, float* pfaSpice, curandState* paStates, float range);
 

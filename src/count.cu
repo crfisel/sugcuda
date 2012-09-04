@@ -1,13 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda.h>
-#include "symbolic_constants.h"
-#include "bitwise.h"
+#include "constants.h"
 #include "count.h"
-#include "move.h"
+#include "utilities.h"
 
-__global__ void count_occupancy(short* psaX, short* psaY, int* pigGridBits, int* pigResidents, int* piaActiveQueue, 
-		const int ciActiveQueueSize, int* piaDeferredQueue, int* piDeferredQueueSize, int* piLockSuccesses)
+__global__ void count_occupancy(short* psaX, short* psaY, int* pigBits, int* pigResidents, int* piaActiveQueue,
+		int* piaDeferredQueue, const int ciActiveQueueSize, int* piDeferredQueueSize, int* piLockSuccesses)
 {
 	int iAgentID;
 	int iAddy;
@@ -25,41 +24,39 @@ __global__ void count_occupancy(short* psaX, short* psaY, int* pigGridBits, int*
 			// current agent's address in the grid
 			iAddy = psaX[iAgentID]*GRID_SIZE+psaY[iAgentID];
 
-			// unpack grid bits
-			GridBitWise gbwBits;
-			lockSuccess = lock(iAddy,&gbwBits,pigGridBits);
+			lockSuccess = lock_location(iAddy,pigBits);
 			if (lockSuccess) {
 				// at this point the square is locked and a valid copy (indicating locked) is in gbwBits
 				iTemp = atomicAdd(piLockSuccesses,1);
 
 				// check for occupancy overflow
-				if (gbwBits.asBits.occupancy < MAX_OCCUPANCY) {
-
-					insert_resident(&(gbwBits.asInt),iAddy,pigResidents,psaX,psaY,psaX[iAgentID],psaY[iAgentID],iAgentID);
+				iTemp = pigBits[iAddy];
+				if (((iTemp&occupancyMask)>>occupancyShift) < MAX_OCCUPANCY) {
+					add_resident(iAgentID,iAddy,pigBits,pigResidents,psaX,psaY);
 				} else {
 					// indicate an error
-					printf("occupancy overflow %d to x:%d y:%d agent %d\n",
-							gbwBits.asBits.occupancy,psaX[iAgentID],psaY[iAgentID],iAgentID);
+					printf("over occupancy %d at addy %d, agent %d\n",
+							((iTemp&occupancyMask)>>occupancyShift),iAddy,iAgentID);
 				}
-				// unlock and update global occupancy values
-				gbwBits.asBits.isLocked = 0;
-				iTemp = atomicExch(&(pigGridBits[iAddy]),gbwBits.asInt);
+				// unlock square
+				unlock_location(iAddy,pigBits);
 			} else {
-			// if lock failed, add the agent to the deferred queue
-			iTemp = atomicAdd(piDeferredQueueSize,1);
-			piaDeferredQueue[iTemp]=iAgentID;
+				// if lock failed, add the agent to the deferred queue
+				iTemp = atomicAdd(piDeferredQueueSize,1);
+				piaDeferredQueue[iTemp]=iAgentID;
+			}
 		}
 	}
-}
-return;
+	return;
 }
 
 // this "failsafe" kernel has one thread, for persistent lock failures
-__global__ void count_occupancy_fs(short* psaX, short* psaY, int* pigGridBits, int* pigResidents,
+__global__ void count_occupancy_fs(short* psaX, short* psaY, int* pigBits, int* pigResidents,
 		int* piaActiveQueue, const int ciActiveQueueSize)
 {
 	int iAgentID;
 	int iAddy;
+	int iTemp;
 
 	// only the 1,1 block is active
 	if (threadIdx.x == 0 && blockIdx.x == 0) {
@@ -73,21 +70,16 @@ __global__ void count_occupancy_fs(short* psaX, short* psaY, int* pigGridBits, i
 				// current agent's address in the grid
 				iAddy = psaX[iAgentID]*GRID_SIZE+psaY[iAgentID];
 
-				// unpack grid bits
-				GridBitWise gbwBits;
-				gbwBits.asInt = pigGridBits[iAddy];
+				iTemp = pigBits[iAddy];
 
 				// no locks necessary, so increment square occupancy
-				// check for occupancy overflow
-				if (gbwBits.asBits.occupancy < MAX_OCCUPANCY) {
-
-					insert_resident(&(gbwBits.asInt),iAddy,pigResidents,psaX,psaY,psaX[iAgentID],psaY[iAgentID],iAgentID);
+				// but check for occupancy overflow first
+				if (((iTemp&occupancyMask)>>occupancyShift) < MAX_OCCUPANCY) {
+					add_resident(iAgentID,iAddy,pigBits,pigResidents,psaX,psaY);
 				} else {
 					// indicate an error
-					printf("occupancy overflow %d to x:%d y:%d agent %d\n",
-							gbwBits.asBits.occupancy,psaX[iAgentID],psaY[iAgentID],iAgentID);
+					printf("over occupancy %d at addy %d, agent %d\n",((iTemp&occupancyMask)>>occupancyShift),iAddy,iAgentID);
 				}
-					pigGridBits[iAddy] = gbwBits.asInt;
 			}
 		}
 	}

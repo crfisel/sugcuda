@@ -8,6 +8,6 @@
 #ifndef EAT_H_
 #define EAT_H_
 
-__global__ void eat(short* , int* , float* , float* );
+__global__ void eat(short* psaX, int* piaBits, float* pfaSugar, float* pfaSpice);
 
 #endif /* EAT_H_ */

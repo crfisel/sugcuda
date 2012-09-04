@@ -8,6 +8,6 @@
 #ifndef GROW_BACK1_H_
 #define GROW_BACK1_H_
 
-__global__ void grow_back1(int* );
+__global__ void grow_back1(int* pigBits);
 
 #endif /* GROW_BACK1_H_ */

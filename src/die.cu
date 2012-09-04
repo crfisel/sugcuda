@@ -1,17 +1,18 @@
 #include <cuda.h>
 #include <stdio.h>
 #include <limits.h>
-#include "symbolic_constants.h"
-#include "bitwise.h"
-#include "move.h"
+#include "constants.h"
+#include "utilities.h"
 #include "die.h"
 
 // this kernel has one thread per agent
-__global__ void register_deaths(short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, float* pfaSpice, 
-		int* pigGridBits, int* pigResidents, int* piaActiveQueue, const int ciActiveQueueSize, int* piaDeferredQueue, 
-		int* piDeferredQueueSize, int* piLockSuccesses)
+__global__ void register_deaths(short* psaX, short* psaY, int* piaBits, int* pigBits, int* pigResidents, float* pfaSugar, float* pfaSpice,
+		int* piaActiveQueue, int* piaDeferredQueue, const int ciActiveQueueSize, int* piDeferredQueueSize, int* piLockSuccesses)
 {
-	bool lockFailed = false;
+	bool lockSuccess = false;
+	int iFlag = 0;
+	int iTempAgent;
+	int iTempGrid;
 
 	// get the iAgentID from the active agent queue
 	int iOffset = threadIdx.x + blockIdx.x*blockDim.x;
@@ -21,68 +22,36 @@ __global__ void register_deaths(short* psaX, short* psaY, int* piaAgentBits, flo
 		// if agent is alive
 		if (psaX[iAgentID] > -1) {
 
-			// check for death by old age or starvation
-			// reinterpret piaAgentBits[iAgentID] bitwise
-			AgentBitWise abwBits;
-			abwBits.asInt = piaAgentBits[iAgentID];
+			// if the agent is over his death age or has starved to death, register the death
+			iTempAgent = piaBits[iAgentID];
+			if (((iTempAgent&ageMask)>>ageShift > 64+((iTempAgent&deathAgeMask)>>deathAgeShift)) ||
+					(pfaSpice[iAgentID] < 0.0f) || (pfaSpice[iAgentID] < 0.0f)) {
 
-			if ((abwBits.asBits.age > 64+abwBits.asBits.deathAge) || (pfaSpice[iAgentID] < 0.0f) || (pfaSpice[iAgentID] < 0.0f)) {
-
-				// lock address to register death - if lock fails, defer
 				// current agent's address in the grid
 				int iAddy = psaX[iAgentID]*GRID_SIZE+psaY[iAgentID];
 
-				// unpack grid bits
-				GridBitWise gbwBits;
-				gbwBits.asInt = pigGridBits[iAddy];
+				// lock address to register death - if lock fails, defer
+				lockSuccess = lock_location(iAddy,pigBits);
+				if (lockSuccess) {
+					// note that lock succeeded
+					iFlag = atomicAdd(piLockSuccesses,1);
 
-				// test if square is locked
-				if (gbwBits.asBits.isLocked != 0) {
-					// if so, lock failed
-					lockFailed = true;
-
-				} else {
-					// if not, make a copy, but indicating locked
-					GridBitWise gbwBitsCopy = gbwBits;
-					gbwBitsCopy.asBits.isLocked = 1;
-
-					// now lock the current address if possible
-					int iLocked = atomicCAS(&(pigGridBits[iAddy]),gbwBits.asInt,gbwBitsCopy.asInt);
-	
-					// test if the lock failed
-					if (iLocked != gbwBits.asInt) {
-						lockFailed = true;
-							
+					// before removing the resident, check that old occupancy was positive
+					iTempGrid = pigBits[iAddy];
+					if (((iTempGrid&occupancyMask)>>occupancyShift) > 0) {
+						remove_resident(iAgentID,iAddy,pigBits,pigResidents);
+						// TODO: INHERITANCE MUST BE HANDLED BEFORE X POSITION INFO IS ERASED
+						// mark agent as dead
+						psaX[iAgentID] = SHRT_MIN;
 					} else {
-						// at this point, square is locked and a valid copy of its bits are in gbwBitsCopy (because locked)
-							int iFlag = atomicAdd(piLockSuccesses,1);
-
-						// before inserting new resident, check for nonzero occupancy
-						if (gbwBitsCopy.asBits.occupancy <= 0) {
-									
-							// if invalid, unlock with no changes
-							iFlag = atomicExch(&(pigGridBits[iAddy]),gbwBits.asInt);
-								
-							// and indicate an error
-							printf("underflow occ %d at x:%d y:%d agent %d res %d\n",
-								gbwBitsCopy.asBits.occupancy,psaX[iAgentID],psaY[iAgentID],iAgentID,pigResidents[iAddy*MAX_OCCUPANCY]);
-
-						} else {
-							remove_resident(&(gbwBitsCopy.asInt),iAddy,pigResidents,iAgentID);
-							
-							// TODO: INHERITANCE MUST BE HANDLED BEFORE X POSITION INFO IS ERASED
-							// mark agent as dead
-							psaX[iAgentID] = SHRT_MIN;
-							
-							// unlock and update global occupancy values
-							gbwBitsCopy.asBits.isLocked = 0;
-							iFlag = atomicExch(&(pigGridBits[iAddy]),gbwBitsCopy.asInt);
-						}
+						// indicate an error
+						printf("under occupancy %d at addy %d agent %d\n",((iTempGrid&occupancyMask)>>occupancyShift),iAddy,iAgentID);
 					}
-				}
-				// if a death occurred, but lock failures prevented registering it, defer
-				if (lockFailed) {
-					int iFlag = atomicAdd(piDeferredQueueSize,1);
+					// unlock square
+					unlock_location(iAddy,pigBits);
+				} else {
+					// if a death occurred, but lock failures prevented registering it, defer
+					iFlag = atomicAdd(piDeferredQueueSize,1);
 					piaDeferredQueue[iFlag]=iAgentID;
 				}
 			}
@@ -91,51 +60,44 @@ __global__ void register_deaths(short* psaX, short* psaY, int* piaAgentBits, flo
 	return;
 }
 
-// this "failsafe" kernel has one thread, for persistent lock failures
-__global__ void register_deaths_fs(short* psaX, short* psaY, int* piaAgentBits, 
-		float* pfaSugar, float* pfaSpice, int* pigGridBits, int* pigResidents, 
+// this "fail-safe" kernel has one thread, for persistent lock failures
+__global__ void register_deaths_fs(short* psaX, short* psaY, int* piaBits,
+		int* pigBits, int* pigResidents, float* pfaSugar, float* pfaSpice,
 		int* piaActiveQueue, const int ciActiveQueueSize)
 {
-	
+	int iTempAgent;
+	int iTempGrid;
+	int iAgentID;
+
 	// only the 1,1 block is active
 	if (threadIdx.x == 0 && blockIdx.x == 0) {
 		// iterate through the active queue
 		for (int iOffset = 0; iOffset < ciActiveQueueSize; iOffset++) {
 
 			// get the iAgentID from the active agent queue
-			int iAgentID = piaActiveQueue[iOffset];
+			iAgentID = piaActiveQueue[iOffset];
 
 			// if agent is alive
 			if (psaX[iAgentID] > -1) {
 
-				// reinterpret piaAgentBits bitwise for death age
-				AgentBitWise abwBits;
-				abwBits.asInt = piaAgentBits[iAgentID];
-				// check for death by old age or starvation
-				if ((abwBits.asBits.age > 64+(abwBits.asBits.deathAge)) || (pfaSpice[iAgentID] < 0.0f) || (pfaSpice[iAgentID] < 0.0f)) {
-					
+				// if the agent is over his death age or has starved to death, register the death
+				iTempAgent = piaBits[iAgentID];
+				if (((iTempAgent&ageMask)>>ageShift > 64+((iTempAgent&deathAgeMask)>>deathAgeShift)) ||
+						(pfaSpice[iAgentID] < 0.0f) || (pfaSpice[iAgentID] < 0.0f)) {
+
 					// current agent's address in the grid
 					int iAddy = psaX[iAgentID]*GRID_SIZE+psaY[iAgentID];
-					
-					// unpack grid bits
-					GridBitWise gbwBits;
-					gbwBits.asInt = pigGridBits[iAddy];
 
-					// before removing resident, check for nonzero occupancy
-					if (gbwBits.asBits.occupancy <= 0) {
-									
-						// if invalid, indicate an error
-						printf("under occ %d at x:%d y:%d agent %d\n",gbwBits.asBits.occupancy,psaX[iAgentID],psaY[iAgentID],iAgentID);
-
-					} else {
-						remove_resident(&(gbwBits.asInt),iAddy,pigResidents,iAgentID);
-
+					// before removing the resident, check that old occupancy was positive
+					iTempGrid = pigBits[iAddy];
+					if (((iTempGrid&occupancyMask)>>occupancyShift) > 0) {
+						remove_resident(iAgentID,iAddy,pigBits,pigResidents);
 						// TODO: INHERITANCE MUST BE HANDLED BEFORE X POSITION INFO IS ERASED
 						// mark agent as dead
 						psaX[iAgentID] = SHRT_MIN;
-								
-						// update global occupancy values
-						int iFlag = atomicExch(&(pigGridBits[iAddy]),gbwBits.asInt);
+					} else {
+						// indicate an error
+						printf("under occupancy %d at addy %d agent %d\n",((iTempGrid&occupancyMask)>>occupancyShift),iAddy,iAgentID);
 					}
 				}
 			}

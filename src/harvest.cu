@@ -5,23 +5,24 @@
  *      Author: C. Richard Fisel
  */
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <cuda.h>
 #include <curand_kernel.h>
-#include "symbolic_constants.h"
-#include "bitwise.h"
+#include "constants.h"
 #include "harvest.h"
 
-__global__ void harvest(curandState* pgStates, short* psaX, float* pfaSugar, float* pfaSpice,
-		int* pigGridBits, int* pigResidents)
+__global__ void harvest(short* psaX, int* pigBits, int* pigResidents,
+		float* pfaSugar, float* pfaSpice, curandState* pgStates)
 {
 	int iAddy = blockIdx.x*blockDim.x+threadIdx.x;
 	int iAgentID;
-	short iOffset;
-	GridBitWise gbwBits;
 
-	gbwBits.asInt = pigGridBits[iAddy];
-	switch (gbwBits.asBits.occupancy) {
+	// make local copy of grid bits
+	int iTemp = pigBits[iAddy];
+	short sOcc = (iTemp&occupancyMask)>>occupancyShift;
+	// harvest based on occupancy
+	switch (sOcc) {
 	case 0:
 		break;
 	case 1:
@@ -30,28 +31,30 @@ __global__ void harvest(curandState* pgStates, short* psaX, float* pfaSugar, flo
 		// if the agent is alive
 		if (psaX[iAgentID] > -1) {
 
-			pfaSugar[iAgentID] += gbwBits.asBits.sugar;
-			pfaSpice[iAgentID] += gbwBits.asBits.spice;
-			gbwBits.asBits.sugar = 0;
-			gbwBits.asBits.spice = 0;
-			pigGridBits[iAddy] = gbwBits.asInt;
+			pfaSugar[iAgentID] += (iTemp&sugarMask)>>sugarShift;
+			pfaSpice[iAgentID] += (iTemp&spiceMask)>>spiceShift;
+			iTemp &= ~sugarMask;
+			iTemp &= ~spiceMask;
+			pigBits[iAddy] = iTemp;
 		}
+//		if (iAgentID >= INIT_AGENTS) printf("Error - lone agent ID %d too big!\n",iAgentID);
 		break;
 	default:
 		curandState localState = pgStates[iAddy];
-		iOffset = curand_uniform(&localState)*(gbwBits.asBits.occupancy);
-		iAgentID = pigResidents[iAddy*MAX_OCCUPANCY+iOffset];
+		short sOffset = curand_uniform(&localState)*sOcc;
+		iAgentID = pigResidents[iAddy*MAX_OCCUPANCY+sOffset];
 
 		// if the agent is alive
 		if (psaX[iAgentID] > -1) {
 
-			pfaSugar[iAgentID] += gbwBits.asBits.sugar;
-			pfaSpice[iAgentID] += gbwBits.asBits.spice;
-			gbwBits.asBits.sugar = 0;
-			gbwBits.asBits.spice = 0;
-			pigGridBits[iAddy] = gbwBits.asInt;
+			pfaSugar[iAgentID] += (iTemp&sugarMask)>>sugarShift;
+			pfaSpice[iAgentID] += (iTemp&spiceMask)>>spiceShift;
+			iTemp &= ~sugarMask;
+			iTemp &= ~spiceMask;
+			pigBits[iAddy] = iTemp;
 		}
 		pgStates[iAddy] = localState;
+//		if (iAgentID >= INIT_AGENTS) printf("Error - agent ID %d too big!\n",iAgentID);
 		break;
 	}
 	return;

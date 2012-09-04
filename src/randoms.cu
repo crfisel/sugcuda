@@ -1,15 +1,14 @@
 #include <stdio.h>
 #include <cuda.h>
 #include <curand_kernel.h>
-#include "symbolic_constants.h"
-#include "bitwise.h"
+#include "constants.h"
 #include "randoms.h"
 
-__global__ void setup_kernel(curandState* state)
+__global__ void setup_kernel(curandState* pStates)
 {
 	int id = threadIdx.x + blockIdx.x*blockDim.x;
 	/* Each thread gets same seed, a different sequence number, no offset */
-	curand_init (1234,id,0,&state[id]);
+	curand_init (1234,id,0,&pStates[id]);
 }
 
 __global__ void initialize_food(float* pfaSugar, float* pfaSpice, curandState* paStates, float range)
@@ -26,23 +25,21 @@ __global__ void initialize_food(float* pfaSugar, float* pfaSpice, curandState* p
 }
 __global__ void initialize_agentbits(curandState* paStates, int* target)
 {
-	AgentBitWise abwTemp;
 	int iAgentID = threadIdx.x + blockIdx.x*blockDim.x;
 	curandState localState = paStates[iAgentID];
 
-	abwTemp.asBits.isFemale = (curand_uniform(&localState) > 0.5) ? 0: 1;
-	// printf("%d\n",abwTemp.asBits.isFemale);
-	abwTemp.asBits.vision = curand_uniform(&localState)*3.999f;
-	abwTemp.asBits.metSugar = curand_uniform(&localState)*3.999f;
-	abwTemp.asBits.metSpice = curand_uniform(&localState)*3.999f;
-	abwTemp.asBits.startFertilityAge = curand_uniform(&localState)*3.999f;
-	abwTemp.asBits.endFertilityAge = curand_uniform(&localState)*15.999f;
-	abwTemp.asBits.deathAge = curand_uniform(&localState)*31.999f;
-	abwTemp.asBits.pad = 0;
-	abwTemp.asBits.isLocked = 0;
-	abwTemp.asBits.age = curand_uniform(&localState)*59.999f;
-	
-	target[iAgentID] = abwTemp.asInt;
+	// NOTE: this first setting leaves pad and grid lock fields = 0
+	int iTemp = visionIncrement*curand_uniform(&localState)*3.999f;
+	iTemp += metSugarIncrement*curand_uniform(&localState)*3.999f;
+	iTemp += metSpiceIncrement*curand_uniform(&localState)*3.999f;
+	iTemp += startFertilityAgeIncrement*curand_uniform(&localState)*3.999f;
+	iTemp += endFertilityAgeIncrement*curand_uniform(&localState)*15.999f;
+	iTemp += deathAgeIncrement*curand_uniform(&localState)*31.999f;
+	iTemp += ageIncrement*curand_uniform(&localState)*59.999f;
+	iTemp += isFemaleIncrement*((curand_uniform(&localState) > 0.5) ? 0: 1);
+
+	// copy back to globals
+	target[iAgentID] = iTemp;
 	paStates[iAgentID] = localState;
 }
 __global__ void fill_positions(curandState* paStates, short* psaX, short* psaY, short range)
@@ -65,11 +62,9 @@ __global__ void initialize_gridbits(curandState* pgStates, int* target, grid_lay
 	short sYRel;
 	short sTileX;
 	short sTileY;
+	int iTemp = 0;
 
 	// pack bit fields separately
-	GridBitWise gbwBits;
-	gbwBits.asBits.isLocked = 0;
-	gbwBits.asBits.occupancy = 0;
 	switch (gridCode) {
 	case TILED:
 		// position relative to tile boundaries (same as %16)
@@ -82,11 +77,9 @@ __global__ void initialize_gridbits(curandState* pgStates, int* target, grid_lay
 
 		// for even-even or odd-odd, it's spice, otherwise sugar
 		if (sTileX&1 == sTileY&1) {
-			gbwBits.asBits.sugar = 0.0f;
-			gbwBits.asBits.spice = tile_value(sXRel,sYRel);
+			iTemp += spiceIncrement*tile_value(sXRel,sYRel);
 		} else {
-			gbwBits.asBits.spice = 0.0f;
-			gbwBits.asBits.sugar = tile_value(sXRel,sYRel);
+			iTemp += sugarIncrement*tile_value(sXRel,sYRel);
 		}
 	case STRETCHED:
 		// position relative to tile boundaries (same as %(GRID_SIZE/2))
@@ -99,24 +92,21 @@ __global__ void initialize_gridbits(curandState* pgStates, int* target, grid_lay
 
 		// for even-even or odd-odd, it's spice, otherwise sugar
 		if (sTileX&1 == sTileY&1) {
-			gbwBits.asBits.sugar = 0.0f;
-			gbwBits.asBits.spice = stretched_value(sXRel,sYRel);
+			iTemp += spiceIncrement*stretched_value(sXRel,sYRel);
 		} else {
-			gbwBits.asBits.spice = 0.0f;
-			gbwBits.asBits.sugar = stretched_value(sXRel,sYRel);
+			iTemp += sugarIncrement*stretched_value(sXRel,sYRel);
 		}
 	case RANDOM:
 	default:
 		curandState localState = pgStates[iLoc];
 
-		gbwBits.asBits.sugar = curand_uniform(&localState)*10.0f;
-		gbwBits.asBits.spice = curand_uniform(&localState)*10.0f;
+		iTemp =+ sugarIncrement*curand_uniform(&localState)*10;
+		iTemp += spiceIncrement*curand_uniform(&localState)*10;
 
 		pgStates[iLoc] = localState;
 	}
-	gbwBits.asBits.maxSugar = gbwBits.asBits.sugar;
-	gbwBits.asBits.maxSpice = gbwBits.asBits.spice;
-	gbwBits.asBits.pad = 0;
+	iTemp += maxSugarIncrement*((iTemp&sugarMask)>>sugarShift);
+	iTemp += maxSpiceIncrement*((iTemp&spiceMask)>>spiceShift);
 
-	target[iLoc] = gbwBits.asInt;
+	target[iLoc] = iTemp;
 }
