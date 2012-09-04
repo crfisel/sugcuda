@@ -33,6 +33,7 @@
 			iTemp = 0;
 			short sXTry = 0;
 			short sYTry = 0;
+
 			for (short i = sXMin; i <= sXMax; i++) {
 				// wraparound
 				sXTry = i;
@@ -46,11 +47,11 @@
 					if (sYTry >= GRID_SIZE) sYTry -= GRID_SIZE;
 
 					// weight target's sugar and spice by need, metabolism, and occupancy
-					iTemp = sXTry*GRID_SIZE+sYTry;
+					iTemp = sXTry*GRID_SIZE + sYTry;
 					gbwBits.asInt = pigGridBits[iTemp];
 					fTest = gbwBits.asBits.spice*spiceScale/(gbwBits.asBits.occupancy+1)
 						+ gbwBits.asBits.sugar*sugarScale/(gbwBits.asBits.occupancy+1);
-
+			
 					// choose new square if it's better
 					if (fTest> fBest) {
 						sXStore = sXTry;

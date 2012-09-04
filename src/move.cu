@@ -81,7 +81,7 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 								// before inserting new resident, check for nonzero old occupancy (negatives forbidden by unsigned short declaration)
 								// and make sure new address is not already full 
 								if (gbwBitsCopy.asBits.occupancy <= 0 || 
-									gbwNewBitsCopy.asBits.occupancy >= MAX_OCCUPANCY) {
+										gbwNewBitsCopy.asBits.occupancy >= MAX_OCCUPANCY) {
 									
 									// unlock with no changes
 									iFlag = atomicExch(&(pigGridBits[iNewAddy]),gbwNewBits.asInt);
@@ -91,15 +91,42 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 									printf("over occ %d at x:%d y:%d or under occ %d at x:%d y:%d agent %d\n",
 										gbwNewBitsCopy.asBits.occupancy,sXStore,sYStore,gbwBitsCopy.asBits.occupancy,sXCenter,sYCenter,iAgentID);
 								} else {
-									remove_resident(&(gbwBitsCopy.asInt),iOldAddy,pigResidents,iAgentID);
-									insert_resident(&(gbwNewBitsCopy.asInt),iNewAddy,pigResidents,psaX,psaY,sXStore,sYStore,iAgentID);
-								} 
+									// find match starting at end of list
+									short k = --gbwBitsCopy.asBits.occupancy;
+
+									// remove current id - if not at the end, replace it with the one from the end and store -1 at end
+									if (pigResidents[iOldAddy*MAX_OCCUPANCY+k] == iAgentID) {
+										pigResidents[iOldAddy*MAX_OCCUPANCY+k] = -1;
+									} else {
+										while (pigResidents[iOldAddy*MAX_OCCUPANCY+k] != iAgentID && k >= 0) {k--;}
+										if (k != gbwBitsCopy.asBits.occupancy) {
+											pigResidents[iOldAddy*MAX_OCCUPANCY+k] = pigResidents[iOldAddy*MAX_OCCUPANCY+gbwBitsCopy.asBits.occupancy];
+											pigResidents[iOldAddy*MAX_OCCUPANCY+gbwBitsCopy.asBits.occupancy] = -1;
+										}
+									}
+
+									// make sure we are replacing an "empty" placemarker
+									if (pigResidents[iNewAddy*MAX_OCCUPANCY+gbwNewBitsCopy.asBits.occupancy] == -1) {
+										psaX[iAgentID] = sXStore;
+										psaY[iAgentID] = sYStore;
+										pigResidents[iNewAddy*MAX_OCCUPANCY+gbwNewBitsCopy.asBits.occupancy] = iAgentID;
+
+										// increment occupancy at new address
+										gbwNewBitsCopy.asBits.occupancy++;
+									} else {
+
+										//otherwise notify about the error
+										printf ("agent replaced %d at x:%d y:%d \n",
+										pigResidents[iNewAddy*MAX_OCCUPANCY+gbwNewBitsCopy.asBits.occupancy],
+											sXStore,sYStore);
+									}
+								}  
 								// unlock and update global occupancy values
 								gbwNewBitsCopy.asBits.isLocked = 0;
 								iFlag = atomicExch(&(pigGridBits[iNewAddy]),gbwNewBitsCopy.asInt);
 								gbwBitsCopy.asBits.isLocked = 0;
 								iFlag = atomicExch(&(pigGridBits[iOldAddy]),gbwBitsCopy.asInt);
-							}
+							} 
 						}
 					}
 				}
@@ -158,14 +185,39 @@ __global__ void best_move_by_traversal_fs(short* psaX, short* psaY, int* piaAgen
 							gbwNewBits.asBits.occupancy,sXStore,sYStore,gbwBits.asBits.occupancy,sXCenter,sYCenter,iAgentID);
 
 					} else {			
+						// find match starting at end of list
+						short k = --gbwBits.asBits.occupancy;
 
-						remove_resident(&(gbwBits.asInt),iOldAddy,pigResidents,iAgentID);
-						insert_resident(&(gbwNewBits.asInt),iNewAddy,pigResidents,psaX,psaY,sXStore,sYStore,iAgentID);
+						// remove current id - if not at the end, replace it with the one from the end and store -1 at end
+						if (pigResidents[iOldAddy*MAX_OCCUPANCY+k] == iAgentID) {
+							pigResidents[iOldAddy*MAX_OCCUPANCY+k] = -1;
+						} else {
+							while (pigResidents[iOldAddy*MAX_OCCUPANCY+k] != iAgentID && k >= 0) {k--;}
+							if (k != gbwBits.asBits.occupancy) {
+								pigResidents[iOldAddy*MAX_OCCUPANCY+k] = pigResidents[iOldAddy*MAX_OCCUPANCY+gbwBits.asBits.occupancy];
+								pigResidents[iOldAddy*MAX_OCCUPANCY+gbwBits.asBits.occupancy] = -1;
+							}
+						}							
 
-						// update global occupancy values
-						int iFlag = atomicExch(&(pigGridBits[iNewAddy]),gbwNewBits.asInt);
-						iFlag = atomicExch(&(pigGridBits[iOldAddy]),gbwBits.asInt);
+						// make sure we are replacing an "empty" placemarker
+						if (pigResidents[iNewAddy*MAX_OCCUPANCY+gbwNewBits.asBits.occupancy] == -1) {
+							psaX[iAgentID] = sXStore;
+							psaY[iAgentID] = sYStore;
+							pigResidents[iNewAddy*MAX_OCCUPANCY+gbwNewBits.asBits.occupancy] = iAgentID;
+
+							// increment occupancy at new address
+							gbwNewBits.asBits.occupancy++;
+						} else {
+
+							//otherwise notify about the error
+							printf ("agent replaced %d at x:%d y:%d \n",
+							pigResidents[iNewAddy*MAX_OCCUPANCY+gbwNewBits.asBits.occupancy],
+								sXStore,sYStore);
+						}
 					}
+					// update global occupancy values
+					int iFlag = atomicExch(&(pigGridBits[iNewAddy]),gbwNewBits.asInt);
+					iFlag = atomicExch(&(pigGridBits[iOldAddy]),gbwBits.asInt);
 				}
 			}
 		}

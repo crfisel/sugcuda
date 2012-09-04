@@ -81,4 +81,17 @@ union BitUnpacker
     unsigned int asUInt;
 };
 
+union CodeBitWise
+{
+	struct CodeBitWiseType
+	{
+		unsigned short isAlive : 1;
+		unsigned short moment : 3;
+		unsigned short property : 2;
+		unsigned short pad : 10;
+	} asBits;
+    	int asUShort;
+};
+
+
 #endif /* BITWISE_H_ */
