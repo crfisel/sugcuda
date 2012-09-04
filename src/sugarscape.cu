@@ -92,7 +92,7 @@ int main (int argc , char* argv [])
 		pighTemp[i] = Random()*UINT_MAX;
 	}
 	CUDA_CALL(cudaMemcpy(pigRandoms,pighTemp,GRID_SIZE*GRID_SIZE*sizeof(int),cudaMemcpyHostToDevice));
-	initialize_gridbits<<<GRID_SIZE,GRID_SIZE>>>(pigRandoms,pigGridBits);
+	initialize_gridbits<<<GRID_SIZE,GRID_SIZE>>>(pigRandoms,pigGridBits,TILED);
 
 	// current residents in square - initialized to -1's, aka empty
 	int* pigResidents;

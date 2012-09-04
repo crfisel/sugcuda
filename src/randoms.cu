@@ -36,28 +36,55 @@ __global__ void fill_positions(unsigned int* piaRandoms, short* psaX, short* psa
 	int iAgentID = threadIdx.x + blockIdx.x*blockDim.x;
 	unsigned int adjusted = piaRandoms[iAgentID]; // % (GRID_SIZE*GRID_SIZE);
 	psaX[iAgentID] = adjusted / GRID_SIZE;
-	psaY[iAgentID] = adjusted % GRID_SIZE;
+	psaY[iAgentID] = adjusted&(GRID_SIZE-1); // same as % GRID_SIZE
 //	printf("%d:%d\n",psaX[iAgentID],psaY[iAgentID]);
 }
 
-__global__ void initialize_gridbits(unsigned int* pigRandoms, int* target)
+__global__ void initialize_gridbits(unsigned int* pigRandoms, int* target, grid_layout gridCode)
 {
-	int iAgentID = threadIdx.x + blockIdx.x*blockDim.x;
+	int iLoc = threadIdx.x + blockIdx.x*blockDim.x;
 	BitUnpacker buTemp;
-	buTemp.asUInt = pigRandoms[iAgentID];
+	float fTemp;
+	buTemp.asUInt = pigRandoms[iLoc];
+	short sXRel;
+	short sYRel;
+	short sTileX;
+	short sTileY;
 
 	// pack bit fields separately
 	GridBitWise gbwBits;
 	gbwBits.asBits.isLocked = 0;
 	gbwBits.asBits.occupancy = 0;
-	float fTemp = buTemp.asBits.b1+2*buTemp.asBits.b2+4*buTemp.asBits.b3+8*buTemp.asBits.b4;
-	gbwBits.asBits.sugar = fTemp*10.0f/15.0f;
+	switch (gridCode) {
+	case TILED:
+		// position relative to tile boundaries (same as %16)
+		sXRel = blockIdx.x&15;
+		sYRel = threadIdx.x&15;
+
+		// tile position (same as /16)
+		sTileX = blockIdx.x>>4;
+		sTileY = threadIdx.x>>4;
+
+		// for even-even or odd-odd, it's spice, otherwise sugar
+		if (sTileX&1 == sTileY&1) {
+			gbwBits.asBits.sugar = 0.0f;
+			gbwBits.asBits.spice = tile_value(sXRel,sYRel);
+		} else {
+			gbwBits.asBits.spice = 0.0f;
+			gbwBits.asBits.sugar = tile_value(sXRel,sYRel);
+		}
+	// add case STRETCHED:
+	case RANDOM:
+	default:
+		fTemp = buTemp.asBits.b1+2*buTemp.asBits.b2+4*buTemp.asBits.b3+8*buTemp.asBits.b4;
+		gbwBits.asBits.sugar = fTemp*10.0f/15.0f;
+		fTemp = buTemp.asBits.b5+2*buTemp.asBits.b6+4*buTemp.asBits.b7+8*buTemp.asBits.b8;
+		gbwBits.asBits.spice = fTemp*10.0f/15.0f;
+	}
 	gbwBits.asBits.maxSugar = gbwBits.asBits.sugar;
-	fTemp = buTemp.asBits.b5+2*buTemp.asBits.b6+4*buTemp.asBits.b7+8*buTemp.asBits.b8;
-	gbwBits.asBits.spice = fTemp*10.0f/15.0f;
 	gbwBits.asBits.maxSpice = gbwBits.asBits.spice;
 	gbwBits.asBits.pad = 0;
 
-	target[iAgentID] = gbwBits.asInt;
+	target[iLoc] = gbwBits.asInt;
 }
 

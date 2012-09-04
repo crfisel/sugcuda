@@ -16,7 +16,7 @@
 #include "die.h"
 
 
-int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, float* pfaSpice, int* pigGridBits, 
+int exercise_locks(operation routine, short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, float* pfaSpice, int* pigGridBits,
 	int* pigResidents, int* piaQueueA, int* piPopulation, int* pihPopulation, int* piaQueueB, int* piDeferredQueueSize, int* piLockSuccesses, 
 	int* pihDeferredQueueSize, int* pihLockSuccesses, int* piStaticAgents, int* pihStaticAgents)
 {
