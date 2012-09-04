@@ -24,10 +24,10 @@ __global__ void initialize_agentbits(unsigned int* piaRandoms, int* target)
 	abwTemp.asBits.startFertilityAge = buTemp.asBits.b8+2*buTemp.asBits.b9;
 	abwTemp.asBits.endFertilityAge = buTemp.asBits.b10+2*buTemp.asBits.b11+4*buTemp.asBits.b12+8*buTemp.asBits.b13;
 	abwTemp.asBits.deathAge = buTemp.asBits.b14+2*buTemp.asBits.b15+4*buTemp.asBits.b16+8*buTemp.asBits.b17+16*buTemp.asBits.b18;
-	abwTemp.asBits.pad = 0;
+	abwTemp.asBits.pad = 0x3F;
 	abwTemp.asBits.isLocked = 0;
-	float fTemp = buTemp.asBits.b8+2*buTemp.asBits.b9+4*buTemp.asBits.b10+8*buTemp.asBits.b11+16*buTemp.asBits.b12+32*buTemp.asBits.b13+64*buTemp.asBits.b4;
-	abwTemp.asBits.age = fTemp*100.0f/127.0f;
+	float fTemp = buTemp.asBits.b19+2*buTemp.asBits.b20+4*buTemp.asBits.b21+8*buTemp.asBits.b22+16*buTemp.asBits.b23+32*buTemp.asBits.b24+64*buTemp.asBits.b25;
+	abwTemp.asBits.age = fTemp*60.0f/127.0f;
 	
 	target[iAgentID] = abwTemp.asInt;
 }
@@ -35,7 +35,7 @@ __global__ void fill_positions(unsigned int* piaRandoms, short* psaX, short* psa
 {
 	int iAgentID = threadIdx.x + blockIdx.x*blockDim.x;
 	unsigned int adjusted = piaRandoms[iAgentID]; // % (GRID_SIZE*GRID_SIZE);
-	psaX[iAgentID] = adjusted / GRID_SIZE;
+	psaX[iAgentID] = adjusted/GRID_SIZE;
 	psaY[iAgentID] = adjusted&(GRID_SIZE-1); // same as % GRID_SIZE
 //	printf("%d:%d\n",psaX[iAgentID],psaY[iAgentID]);
 }
@@ -73,7 +73,23 @@ __global__ void initialize_gridbits(unsigned int* pigRandoms, int* target, grid_
 			gbwBits.asBits.spice = 0.0f;
 			gbwBits.asBits.sugar = tile_value(sXRel,sYRel);
 		}
-	// add case STRETCHED:
+	case STRETCHED:
+		// position relative to tile boundaries (same as %(GRID_SIZE/2))
+		sXRel = blockIdx.x&((GRID_SIZE>>1)-1);
+		sYRel = threadIdx.x&((GRID_SIZE>>1)-1);
+
+		// tile position (same as /2)
+		sTileX = blockIdx.x>>1;
+		sTileY = threadIdx.x>>1;
+
+		// for even-even or odd-odd, it's spice, otherwise sugar
+		if (sTileX&1 == sTileY&1) {
+			gbwBits.asBits.sugar = 0.0f;
+			gbwBits.asBits.spice = stretched_value(sXRel,sYRel);
+		} else {
+			gbwBits.asBits.spice = 0.0f;
+			gbwBits.asBits.sugar = stretched_value(sXRel,sYRel);
+		}
 	case RANDOM:
 	default:
 		fTemp = buTemp.asBits.b1+2*buTemp.asBits.b2+4*buTemp.asBits.b3+8*buTemp.asBits.b4;

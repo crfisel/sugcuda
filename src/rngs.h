@@ -9,6 +9,7 @@
 #if !defined( _RNGS_ )
 #define _RNGS_
 
+unsigned int Random_uint(void);
 double Random(void);
 void   PlantSeeds(long x);
 void   GetSeed(long *x);

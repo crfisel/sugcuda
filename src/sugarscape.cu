@@ -26,6 +26,7 @@ int main (int argc , char* argv [])
     unsigned int* piaRandoms;
     unsigned int* pigRandoms;
     unsigned int* piahTemp;
+    float* pfahTemp;
     unsigned int* pighTemp;
 
 	// seed rngs
@@ -52,7 +53,7 @@ int main (int argc , char* argv [])
 	int* piaAgentBits;
 	CUDA_CALL(cudaMalloc((void**)&piaAgentBits,MAX_AGENTS*sizeof(int)));
 	for (int i = 0; i < INIT_AGENTS; i++) {
-		piahTemp[i] = Random()*UINT_MAX;
+		piahTemp[i] = Random_uint();
 	}
 	CUDA_CALL(cudaMemcpy(piaRandoms,piahTemp,INIT_AGENTS*sizeof(int),cudaMemcpyHostToDevice));
 	initialize_agentbits<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(piaRandoms,piaAgentBits);
@@ -60,11 +61,11 @@ int main (int argc , char* argv [])
 	// sugar holdings
 	float* pfaSugar;
 	CUDA_CALL(cudaMalloc((void**)&pfaSugar,MAX_AGENTS*sizeof(float)));
-	for (int i = 0; i < INIT_AGENTS; i++) {
-		piahTemp[i] = Random()*UINT_MAX;
+	CUDA_CALL(cudaHostAlloc((void**)&pfahTemp,MAX_AGENTS*sizeof(float),cudaHostAllocDefault));
+		for (int i = 0; i < INIT_AGENTS; i++) {
+		pfahTemp[i] = Random()*30.0f;
 	}
-	CUDA_CALL(cudaMemcpy(piaRandoms,piahTemp,INIT_AGENTS*sizeof(int),cudaMemcpyHostToDevice));
-	initialize_food<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(piaRandoms,pfaSugar,30.0f);	
+	CUDA_CALL(cudaMemcpy(pfaSugar,pfahTemp,INIT_AGENTS*sizeof(int),cudaMemcpyHostToDevice));
 	float* pfaInitialSugar;
 	CUDA_CALL(cudaMalloc((void**)&pfaInitialSugar,MAX_AGENTS*sizeof(float)));
 	CUDA_CALL(cudaMemcpy(pfaInitialSugar,pfaSugar,INIT_AGENTS*sizeof(float),cudaMemcpyDeviceToDevice));
@@ -73,10 +74,9 @@ int main (int argc , char* argv [])
 	float* pfaSpice;
 	CUDA_CALL(cudaMalloc((void**)&pfaSpice,MAX_AGENTS*sizeof(float)));
 	for (int i = 0; i < INIT_AGENTS; i++) {
-		piahTemp[i] = Random()*UINT_MAX;
+		pfahTemp[i] = Random()*30.0f;
 	}
-	CUDA_CALL(cudaMemcpy(piaRandoms,piahTemp,INIT_AGENTS*sizeof(int),cudaMemcpyHostToDevice));
-	initialize_food<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(piaRandoms,pfaSpice,30.0f);	
+	CUDA_CALL(cudaMemcpy(pfaSpice,pfahTemp,INIT_AGENTS*sizeof(int),cudaMemcpyHostToDevice));
 	float* pfaInitialSpice;
 	CUDA_CALL(cudaMalloc((void**)&pfaInitialSpice,MAX_AGENTS*sizeof(float)));
 	CUDA_CALL(cudaMemcpy(pfaInitialSpice,pfaSpice,INIT_AGENTS*sizeof(float),cudaMemcpyDeviceToDevice));
@@ -153,7 +153,7 @@ int main (int argc , char* argv [])
 
 	// count occupancy and store residents
 
-	int status = exercise_locks(COUNT,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pigGridBits,pigResidents,piaQueueA,
+	int status = exercise_locks(COUNT,psaX,psaY,piaAgentBits,piaRandoms,pfaSugar,pfaSpice,pfaInitialSugar,pfaInitialSpice,pigGridBits,pigResidents,piaQueueA,
 		piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses,pihDeferredQueueSize,pihLockSuccesses,piStaticAgents,pihStaticAgents);
 
 	//   end timing
@@ -163,7 +163,7 @@ int main (int argc , char* argv [])
 	CUDA_CALL(cudaEventSynchronize(end));
 	CUDA_CALL(cudaEventElapsedTime(&elapsed_time, start, end));
 	
-	printf ("Counting %d agents takes %f milliseconds\n",(int) pihPopulation[0], (float) elapsed_time);
+	printf ("Counting %d agents takes %f ms\n",(int) pihPopulation[0], (float) elapsed_time);
 
 	// main loop
 		while(pihPopulation[0] > 10) {
@@ -171,7 +171,7 @@ int main (int argc , char* argv [])
 		CUDA_CALL(cudaEventRecord(start,0));
 
 		// do movement
-		status = exercise_locks(MOVE,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pigGridBits,pigResidents,piaQueueA,
+		status = exercise_locks(MOVE,psaX,psaY,piaAgentBits,piaRandoms,pfaSugar,pfaSpice,pfaInitialSugar,pfaInitialSpice,pigGridBits,pigResidents,piaQueueA,
 			piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses,pihDeferredQueueSize,pihLockSuccesses,piStaticAgents,pihStaticAgents);
 		CUDA_CALL(cudaDeviceSynchronize());
 
@@ -182,10 +182,7 @@ int main (int argc , char* argv [])
 		CUDA_CALL(cudaEventSynchronize(end));
 		CUDA_CALL(cudaEventElapsedTime(&elapsed_time, start, end));
 
-		printf ("Moving %d agents takes %f milliseconds\n",(int) pihPopulation[0], (float) elapsed_time);
-
-		// time harvest, meal and aging
-		CUDA_CALL(cudaEventRecord(start,0));
+		printf ("Moving %d agents takes %f ms\n",(int) pihPopulation[0], (float) elapsed_time);
 
 		for (int i = 0; i < GRID_SIZE*GRID_SIZE; i++) {
 			pighTemp[i] = Random()*UINT_MAX;
@@ -197,19 +194,14 @@ int main (int argc , char* argv [])
 
 		age<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(piaAgentBits);
 
-		//   end timing
-		CUDA_CALL(cudaThreadSynchronize());
-		CUDA_CALL(cudaEventSynchronize(end));
-		CUDA_CALL(cudaEventRecord(end,0));
-		CUDA_CALL(cudaEventSynchronize(end));
-		CUDA_CALL(cudaEventElapsedTime(&elapsed_time, start, end));
-
-		printf ("Harvesting %d squares and feeding and aging %d agents takes %f milliseconds\n",(int) GRID_SIZE*GRID_SIZE, (int) pihPopulation[0], (float) elapsed_time);
-
-		// time dying
+		// time mating
 		CUDA_CALL(cudaEventRecord(start,0));
 
-		status = exercise_locks(DIE,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pigGridBits,pigResidents,piaQueueA,
+		for (int i = 0; i < pihPopulation[0]; i++) {
+			piahTemp[i] = Random()*UINT_MAX;
+		}
+		CUDA_CALL(cudaMemcpy(piaRandoms,piahTemp,pihPopulation[0]*sizeof(int),cudaMemcpyHostToDevice));
+		status = exercise_locks(MATE,psaX,psaY,piaAgentBits,piaRandoms,pfaSugar,pfaSpice,pfaInitialSugar,pfaInitialSpice,pigGridBits,pigResidents,piaQueueA,
 			piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses,pihDeferredQueueSize,pihLockSuccesses,piStaticAgents,pihStaticAgents);
 
 		//   end timing
@@ -220,12 +212,13 @@ int main (int argc , char* argv [])
 		CUDA_CALL(cudaEventElapsedTime(&elapsed_time, start, end));
 
 		CUDA_CALL(cudaMemcpy(pihPopulation,piPopulation,sizeof(int),cudaMemcpyDeviceToHost));
-		printf ("Registering deaths among %d agents takes %f milliseconds\n",(int) pihPopulation[0], (float) elapsed_time);
+		printf ("Mating %d agents takes %f ms\n",(int) pihPopulation[0], (float) elapsed_time);
 
-		// time regrowth
+		// time dying
 		CUDA_CALL(cudaEventRecord(start,0));
 
-		grow_back1<<<GRID_SIZE,GRID_SIZE>>>(pigGridBits);
+		status = exercise_locks(DIE,psaX,psaY,piaAgentBits,piaRandoms,pfaSugar,pfaSpice,pfaInitialSugar,pfaInitialSpice,pigGridBits,pigResidents,piaQueueA,
+			piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses,pihDeferredQueueSize,pihLockSuccesses,piStaticAgents,pihStaticAgents);
 
 		//   end timing
 		CUDA_CALL(cudaThreadSynchronize());
@@ -233,8 +226,11 @@ int main (int argc , char* argv [])
 		CUDA_CALL(cudaEventRecord(end,0));
 		CUDA_CALL(cudaEventSynchronize(end));
 		CUDA_CALL(cudaEventElapsedTime(&elapsed_time, start, end));
-		CUDA_CALL(cudaDeviceSynchronize());
-		printf ("Growing sugar and spice on %d squares takes %f milliseconds\n",(int) GRID_SIZE*GRID_SIZE, (float) elapsed_time);
+
+		CUDA_CALL(cudaMemcpy(pihPopulation,piPopulation,sizeof(int),cudaMemcpyDeviceToHost));
+		printf ("Registering deaths among %d agents takes %f ms\n",(int) pihPopulation[0], (float) elapsed_time);
+
+		grow_back1<<<GRID_SIZE,GRID_SIZE>>>(pigGridBits);
 	}
 
 	// Cleanup 
@@ -257,6 +253,7 @@ int main (int argc , char* argv [])
 	CUDA_CALL(cudaFreeHost(pihDeferredQueueSize));
 	CUDA_CALL(cudaFreeHost(pihStaticAgents));
 	CUDA_CALL(cudaFreeHost(piahTemp));
+	CUDA_CALL(cudaFreeHost(pfahTemp));
 	CUDA_CALL(cudaFreeHost(pighTemp));
 
 	return EXIT_SUCCESS;
