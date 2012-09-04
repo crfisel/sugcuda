@@ -5,57 +5,63 @@
 #include "bitwisetype.h"
 #include "mate.h"
 
-__global__ void mate(short* psaX, short* psaY, short* pigGridBits, int* pigResidents, int* piaActiveQueue, 
-	const int ciActiveQueueSize, int* piaDeferredQueue, int* piDeferredQueueSize, int* piLockSuccesses)
+__global__ void mate(short* psaX, short* psaY, int* pbaAgentBits, float* pfaSugar, float* pfaSpice, int* pigGridBits, int* pigResidents, 
+	int* piaActiveQueue, const int ciActiveQueueSize, int* piaDeferredQueue, int* piDeferredQueueSize, int* piLockSuccesses)
 {
 	int iAgentID;
 	int iMateID;
 	int iAddy;
-	int iTemp;
-	short sOldOcc;
+	int iAddyTry;
+	GridBitWise gbwBits;
+	GridBitWise gbwBitsTry;
 	bool pregnant = false;
-	bool lockFailed = false;
-
+	bool lockSuccess = false;
+	short sOccTry;
+	AgentBitWise abwAgentBits;
+	AgentBitWise abwMateBits;
+	
 	// get the iAgentID from the active agent queue
 	int iOffset = threadIdx.x + blockIdx.x*blockDim.x;
 	if (iOffset < ciActiveQueueSize) {
 		iAgentID = piaActiveQueue[iOffset];
 
 		// live, fertile, solvent female agents only
-		if (((&pbaBits[iAgentID])->isFemale) == 1) {
-			if (isFertile(iAgentID)) {
-				if	((pfaSugar[iAgentID] > pfaInitialSugar[iAgentID]) &&
-						(pfaSpice[iAgentID] > pfaInitialSpice[iAgentID])) {
-					for (short sXTry = psaX[iAgentID] - 1; sXTry < psaX[iAgentID] + 2; sXTry++) {
-						for (short sYTry = psaY[iAgentID] - 1; sYTry < psaY[iAgentID] + 2; sYTry++) {
-							short sOccTry = 0;
-							while (sOccTry < MAX_OCCUPANCY && !pregnant) {
-								// get the potential mate's id
-								int iMateID = pigResidents[(sXTry*GRID_SIZE+sYTry)*MAX_OCCUPANCY+sOccTry];
-								// make sure this is not an "empty" placeholder
-								if (iMateID > -1) {
-									// make sure he's male, alive and fertile
-									if ((&pbaBits[iAgentID])->isFemale == 0 && isFertile(iMateID)) {
-										// if he's unlocked...
-										short sHisAge = psaAge[iMateID];
-										if (sHisAge > 0) {
-											// lock him if possible by changing his age to negative
-											int iTemp = atomicCAS(&(psaAge[iMateID]),sHisAge,-sHisAge);
-											if (iTemp == sHisAge) {
-												// now he's locked, check his solvency
-												if	((pfaSugar[iMateID] > pfaInitialSugar[iMateID]) &&
-														(pfaSpice[iMateID] > pfaInitialSpice[iMateID])) {
-													// ok he's a keeper, make a baby...
-													pregnant = true;
-												} else {
-													// unlock him
-													iTemp = atomicExch(&(psaAge[iMateID]),abs(sHisAge));
-												}
-											} else {
-												lockFailed = true;
-											}
+		if (is_fertile(iAgentID) &&
+			&pbaAgentBits[iAgentID])->isFemale == 1 &&	
+			(pfaSugar[iAgentID] > pfaInitialSugar[iAgentID]) &&
+			(pfaSpice[iAgentID] > pfaInitialSpice[iAgentID])) {
+			iAddy = psaX[iAgentID]*GRID_SIZE+psaY[iAgentID];
+			gbwBits.asInt = pigGridBits[iAddy];
+			while (gbwBits.asBits.occupancy < MAX_OCCUPANCY) {
+				// get nearest neighbors
+				//#pragma unroll 3
+				for (short sXTry = psaX[iAgentID] - 1; sXTry < psaX[iAgentID] + 2; sXTry++) {
+					//#pragma unroll 3
+					for (short sYTry = psaY[iAgentID] - 1; sYTry < psaY[iAgentID] + 2; sYTry++) {
+						iAddyTry = sXTry*GRID_SIZE+sYTry;
+						gbwBitsTry.asInt = pigGridBits[iAddyTry];
+							for (sOccTry = 0; sOccTry < gbwBitsTry.asBits.occupancy; sOccTry++) {
+								while (!pregnant) {
+									// get the potential mate's id
+									int iMateID = pigResidents[iAddyTry*MAX_OCCUPANCY+sOccTry];
+									if (is_acceptable_mate(iMateID,pbaAgentBits,psaX)) lockSuccess = lock_potential_mate(iMateID,psaX,pbaAgentBits,&abwMateBits);
+									if (lockSuccess) {
+										// now he's locked, check his solvency
+										if	((pfaSugar[iMateID] > pfaInitialSugar[iMateID]) &&
+											(pfaSpice[iMateID] > pfaInitialSpice[iMateID])) {
+											// ok he's a keeper, make a baby...
+											pregnant = true;
+											//etc...
+										} else {
+											// unlock him
+											iTemp = atomicExch(&(pbaAgentBits[iMateID]),abwMateBits);
 										}
+									} else {
+										lockSuccess = false;
 									}
+								}
+							}
+					}
 								}
 							}
 						}

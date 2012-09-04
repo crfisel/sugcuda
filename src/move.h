@@ -13,7 +13,7 @@
 
 __forceinline__ __device__ bool lock(int iAddy, GridBitWise* gbwBits, int* pigGridBits)
 {
-	bool status = false;
+	bool lockSuccess = false;
 	
 	// unpack grid bits
 	gbwBits->asInt = pigGridBits[iAddy];
@@ -31,11 +31,11 @@ __forceinline__ __device__ bool lock(int iAddy, GridBitWise* gbwBits, int* pigGr
 		
 		// test if the lock worked
 		if (iLocked == gbwBits->asInt) {
-			status = true;
+			lockSuccess = true;
 			gbwBits->asInt = gbwBitsCopy.asInt;
 		}
 	}
-	return status;
+	return lockSuccess;
 }
 
 
