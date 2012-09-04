@@ -11,7 +11,7 @@
 // dimensions
 #define NUM_THREADS_PER_BLOCK 1024
 #define GRID_SIZE 1024
-#define INIT_AGENTS 524288 
+#define INIT_AGENTS 2097152 //524288 
 #define MAX_AGENTS 2097152
 #define MAX_OCCUPANCY 15 // MAX 15!!
 

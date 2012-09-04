@@ -21,10 +21,12 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 	int* pihDeferredQueueSize, int* pihLockSuccesses)
 {
 	int status = EXIT_SUCCESS;
+	dim3 d3Blocks;	
+	int hiNumBlocks;
 	
 	// sync the host and device readings of population
 	CUDA_CALL(cudaMemcpy(pihPopulation,piPopulation,sizeof(int),cudaMemcpyDeviceToHost));
-	cudaDeviceSynchronize();
+	CUDA_CALL(cudaDeviceSynchronize());
 	
 	// fill the agent queue with increasing (later random) id's
 	int* piahTemp = (int*) malloc(pihPopulation[0]*sizeof(int));
@@ -44,24 +46,33 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 	CUDA_CALL(cudaMemset(piLockSuccesses,0,sizeof(int)));
 
 	// call first iteration on parallel version with locking
-	int hiNumBlocks = (pihPopulation[0]+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
-	switch (routine) {
+ 	switch (routine) {
 		case COUNT:
+			hiNumBlocks = (pihPopulation[0]+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
 			count_occupancy<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,pigGridBits,pigResidents,
 				piaQueueA,pihPopulation[0],piaQueueB,piDeferredQueueSize,piLockSuccesses);
 			break;
 		case MOVE:
-			best_move_by_traversal<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
+			hiNumBlocks = (pihPopulation[0]+511)/512;
+			if (hiNumBlocks <= 1024) {
+				best_move_by_traversal<<<hiNumBlocks,512>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
+					pigGridBits,pigResidents,piaQueueA,pihPopulation[0],piaQueueB,piDeferredQueueSize,piLockSuccesses);
+			} else {
+			d3Blocks.x = 1024;
+			d3Blocks.y = (hiNumBlocks+1023)/1024;
+			best_move_by_traversal<<<d3Blocks,512>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
 				pigGridBits,pigResidents,piaQueueA,pihPopulation[0],piaQueueB,piDeferredQueueSize,piLockSuccesses);
+			}
 			break;
 		case DIE:
+			hiNumBlocks = (pihPopulation[0]+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
 			register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
 				pigGridBits,pigResidents,piaQueueA,pihPopulation[0],piaQueueB,piDeferredQueueSize,piLockSuccesses);
 			break;
 		default:
 			break;
 	}
-	cudaDeviceSynchronize();
+	CUDA_CALL(cudaDeviceSynchronize());
 
 	// check if any agents had to be deferred
 	CUDA_CALL(cudaMemcpy(pihDeferredQueueSize,piDeferredQueueSize,sizeof(int),cudaMemcpyDeviceToHost));
@@ -75,7 +86,6 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 	bool hQueue = true;
 	while (pihDeferredQueueSize[0] > 10 && pihDeferredQueueSize[0] < ihActiveQueueSize) {
 		ihActiveQueueSize = pihDeferredQueueSize[0];
-		hiNumBlocks = (ihActiveQueueSize+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
 		CUDA_CALL(cudaMemset(piDeferredQueueSize,0,sizeof(int)));
 		CUDA_CALL(cudaMemset(piLockSuccesses,0,sizeof(int)));
 		if (hQueue) {
@@ -83,14 +93,24 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 			CUDA_CALL(cudaMemset(piaQueueA,0xFF,pihPopulation[0]*sizeof(int)));
 			switch (routine) {
 				case COUNT:
+					hiNumBlocks = (ihActiveQueueSize+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
 					count_occupancy<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,pigGridBits,pigResidents,
 						piaQueueB,ihActiveQueueSize,piaQueueA,piDeferredQueueSize,piLockSuccesses);
 				break;
 				case MOVE:
-					best_move_by_traversal<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
-						pigGridBits,pigResidents,piaQueueB,ihActiveQueueSize,piaQueueA,piDeferredQueueSize,piLockSuccesses);
+					hiNumBlocks = (ihActiveQueueSize+511)/512;
+					if (hiNumBlocks <= 1024) {
+						best_move_by_traversal<<<hiNumBlocks,512>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
+							pigGridBits,pigResidents,piaQueueB,ihActiveQueueSize,piaQueueA,piDeferredQueueSize,piLockSuccesses);
+					} else {
+						d3Blocks.x = 1024;
+						d3Blocks.y = (hiNumBlocks+1023)/1024;
+						best_move_by_traversal<<<d3Blocks,512>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
+							pigGridBits,pigResidents,piaQueueB,ihActiveQueueSize,piaQueueA,piDeferredQueueSize,piLockSuccesses);
+					}
 					break;
 				case DIE:
+					hiNumBlocks = (ihActiveQueueSize+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
 					register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
 						pigGridBits,pigResidents,piaQueueB,ihActiveQueueSize,piaQueueA,piDeferredQueueSize,piLockSuccesses);
 					break;
@@ -102,14 +122,24 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 			CUDA_CALL(cudaMemset(piaQueueB,0xFF,pihPopulation[0]*sizeof(int)));
 			switch (routine) {
 				case COUNT:
+					hiNumBlocks = (ihActiveQueueSize+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
 					count_occupancy<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,pigGridBits,pigResidents,
 						piaQueueA,ihActiveQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 				break;
 				case MOVE:
-					best_move_by_traversal<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
-						pigGridBits,pigResidents,piaQueueA,ihActiveQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+					hiNumBlocks = (ihActiveQueueSize+511)/512;
+					if (hiNumBlocks <= 1024) {
+						best_move_by_traversal<<<hiNumBlocks,512>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
+							pigGridBits,pigResidents,piaQueueA,ihActiveQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+					} else {
+						d3Blocks.x = 1024;
+						d3Blocks.y = (hiNumBlocks+1023)/1024;
+						best_move_by_traversal<<<d3Blocks,512>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
+							pigGridBits,pigResidents,piaQueueA,ihActiveQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+					}
 					break;
 				case DIE:
+					hiNumBlocks = (ihActiveQueueSize+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
 					register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
 						pigGridBits,pigResidents,piaQueueA,ihActiveQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 					break;
@@ -117,7 +147,7 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 					break;
 			}
 		}
-		cudaDeviceSynchronize();
+		CUDA_CALL(cudaDeviceSynchronize());
 		hQueue = !hQueue;
 		CUDA_CALL(cudaMemcpy(pihDeferredQueueSize,piDeferredQueueSize,sizeof(int),cudaMemcpyDeviceToHost));
 		printf ("secondary deferrals:%d \n",pihDeferredQueueSize[0]);
@@ -159,7 +189,7 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 					break;
 			}
 		}
-		cudaDeviceSynchronize();
+		CUDA_CALL(cudaDeviceSynchronize());
 	}
 
 	// cleanup

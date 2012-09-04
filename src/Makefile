@@ -34,7 +34,7 @@
 ################################################################################
 
 # Add source files here
-EXECUTABLE	:= sugarscape_lessifs
+EXECUTABLE	:= sugarscape_2d
 
 # Includes
 INCLUDES  += -I/home/sammy/cudpp_src_2.0/include -I/home/sammy/cudpp_src_2.0/apps/common/include
