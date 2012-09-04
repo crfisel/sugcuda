@@ -18,7 +18,7 @@
 
 int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, float* pfaSpice, int* pigGridBits, 
 	int* pigResidents, int* piaQueueA, int* piPopulation, int* pihPopulation, int* piaQueueB, int* piDeferredQueueSize, int* piLockSuccesses, 
-	int* pihDeferredQueueSize, int* pihLockSuccesses)
+	int* pihDeferredQueueSize, int* pihLockSuccesses, int* piStaticAgents, int* pihStaticAgents)
 {
 	int status = EXIT_SUCCESS;
 	
@@ -42,6 +42,9 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 	// zero the successful locks counter
 	CUDA_CALL(cudaMemset(piLockSuccesses,0,sizeof(int)));
 
+	// zero the static agents counter
+	CUDA_CALL(cudaMemset(piStaticAgents,0,sizeof(int)));
+
 	// call first iteration on parallel version with locking
 	int hiNumBlocks = (pihPopulation[0]+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
 	switch (routine) {
@@ -51,7 +54,9 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 			break;
 		case MOVE:
 			best_move_by_traversal<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
-				pigGridBits,pigResidents,piaQueueA,pihPopulation[0],piaQueueB,piDeferredQueueSize,piLockSuccesses);
+				pigGridBits,pigResidents,piaQueueA,pihPopulation[0],piaQueueB,piDeferredQueueSize,piLockSuccesses,piStaticAgents);
+			CUDA_CALL(cudaMemcpy(pihStaticAgents,piStaticAgents,sizeof(int),cudaMemcpyDeviceToHost));
+			printf ("static agents:%d \n",pihStaticAgents[0]);
 			break;
 		case DIE:
 			register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
@@ -76,7 +81,6 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 		ihActiveQueueSize = pihDeferredQueueSize[0];
 		hiNumBlocks = (ihActiveQueueSize+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
 		CUDA_CALL(cudaMemset(piDeferredQueueSize,0,sizeof(int)));
-		CUDA_CALL(cudaMemset(piLockSuccesses,0,sizeof(int)));
 		if (hQueue) {
 			// switch the two queues and handle deferred agents
 			CUDA_CALL(cudaMemset(piaQueueA,0xFF,pihPopulation[0]*sizeof(int)));
@@ -87,7 +91,9 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 				break;
 				case MOVE:
 					best_move_by_traversal<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
-						pigGridBits,pigResidents,piaQueueB,ihActiveQueueSize,piaQueueA,piDeferredQueueSize,piLockSuccesses);
+						pigGridBits,pigResidents,piaQueueB,ihActiveQueueSize,piaQueueA,piDeferredQueueSize,piLockSuccesses,piStaticAgents);
+					CUDA_CALL(cudaMemcpy(pihStaticAgents,piStaticAgents,sizeof(int),cudaMemcpyDeviceToHost));
+					printf ("static agents (cumulative):%d \n",pihStaticAgents[0]);
 					break;
 				case DIE:
 					register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
@@ -106,7 +112,9 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 				break;
 				case MOVE:
 					best_move_by_traversal<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
-						pigGridBits,pigResidents,piaQueueA,ihActiveQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses);
+						pigGridBits,pigResidents,piaQueueA,ihActiveQueueSize,piaQueueB,piDeferredQueueSize,piLockSuccesses,piStaticAgents);
+					CUDA_CALL(cudaMemcpy(pihStaticAgents,piStaticAgents,sizeof(int),cudaMemcpyDeviceToHost));
+					printf ("static agents (cumulative):%d \n",pihStaticAgents[0]);
 					break;
 				case DIE:
 					register_deaths<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
@@ -120,6 +128,8 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 		hQueue = !hQueue;
 		CUDA_CALL(cudaMemcpy(pihDeferredQueueSize,piDeferredQueueSize,sizeof(int),cudaMemcpyDeviceToHost));
 		printf ("secondary deferrals:%d \n",pihDeferredQueueSize[0]);
+		CUDA_CALL(cudaMemcpy(pihLockSuccesses,piLockSuccesses,sizeof(int),cudaMemcpyDeviceToHost));
+		printf ("successful locks (cumulative):%d \n",pihLockSuccesses[0]);
 	} 
 
 	// for persistent lock failures, use the failsafe version (once)
@@ -132,7 +142,9 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 				break;
 				case MOVE:
 					best_move_by_traversal_fs<<<1,1>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pigGridBits,
-						pigResidents,piaQueueB,ihActiveQueueSize);
+						pigResidents,piaQueueB,ihActiveQueueSize,piStaticAgents);
+					CUDA_CALL(cudaMemcpy(pihStaticAgents,piStaticAgents,sizeof(int),cudaMemcpyDeviceToHost));
+					printf ("static agents (cumulative):%d \n",pihStaticAgents[0]);
 					break;
 				case DIE:
 					register_deaths_fs<<<1,1>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,
@@ -148,7 +160,9 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 				break;
 				case MOVE:
 					best_move_by_traversal_fs<<<1,1>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pigGridBits,
-						pigResidents,piaQueueA,ihActiveQueueSize);
+						pigResidents,piaQueueA,ihActiveQueueSize,piStaticAgents);
+					CUDA_CALL(cudaMemcpy(pihStaticAgents,piStaticAgents,sizeof(int),cudaMemcpyDeviceToHost));
+					printf ("static agents (cumulative):%d \n",pihStaticAgents[0]);
 					break;
 				case DIE:
 					register_deaths_fs<<<1,1>>>(psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,

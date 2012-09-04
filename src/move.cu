@@ -8,7 +8,7 @@
 // NOTE: NUM_AGENTS is an int, GRID_SIZE is a short
 __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, 
 	float* pfaSpice, int* pigGridBits, int* pigResidents, int* piaActiveQueue, const int ciActiveQueueSize, 
-	int* piaDeferredQueue, int* piDeferredQueueSize, int* piLockSuccesses)
+	int* piaDeferredQueue, int* piDeferredQueueSize, int* piLockSuccesses, int* piStaticAgents)
 {
 	GridBitWise gbwBits;
 	int iFlag = 0;
@@ -24,8 +24,10 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 
 #include "traversal_routine.cu"
 
+			if (sXStore == sXCenter && sYStore == sYCenter) {
+				iFlag = atomicAdd(piStaticAgents,1);
+			} else {
 			// if a move is warranted, lock old and new address - if either fails, defer
-			if (sXStore != sXCenter || sYStore != sYCenter) {
 
 				// agent's current address in the grid
 				int iOldAddy = sXCenter*GRID_SIZE+sYCenter;
@@ -118,7 +120,7 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 // this "failsafe" kernel has one thread, for persistent lock failures
 // NOTE: NUM_AGENTS is an int, GRID_SIZE is a short
 __global__ void best_move_by_traversal_fs(short* psaX, short* psaY, int* piaAgentBits, float* pfaSugar, 
-	float* pfaSpice, int* pigGridBits, int* pigResidents, int* piaActiveQueue, const int ciActiveQueueSize)
+	float* pfaSpice, int* pigGridBits, int* pigResidents, int* piaActiveQueue, const int ciActiveQueueSize, int* piStaticAgents)
 {
 	GridBitWise gbwBits;
 	int iAgentID;
@@ -136,8 +138,9 @@ __global__ void best_move_by_traversal_fs(short* psaX, short* psaY, int* piaAgen
 
 #include "traversal_routine.cu"
 
-				if (sXStore != sXCenter || sYStore != sYCenter) {
-
+				if (sXStore == sXCenter || sYStore == sYCenter) {
+					piStaticAgents[0]++;
+				} else {
 					// if a move is warranted, go, no need to lock
 					// get old and new addresses in the grid
 					int iOldAddy = sXCenter*GRID_SIZE+sYCenter;

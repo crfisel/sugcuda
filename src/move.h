@@ -58,10 +58,10 @@ __forceinline__ __device__ void insert_resident(int* piBits, int iAddy, int* pig
 }
 
 __global__ void best_move_by_traversal(short* , short* , int* ,	float* , float* , 
-	int* , int* , int* , const int , int* , int* , int* );
+	int* , int* , int* , const int , int* , int* , int* , int* );
 
 __global__ void best_move_by_traversal_fs(short* , short* , int* , float* , float* , 
-	int* , int* , int* , const int );
+	int* , int* , int* , const int , int* );
 
 #endif /* MOVE_H_ */
 

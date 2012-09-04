@@ -136,6 +136,13 @@ int main (int argc , char* argv [])
 	pihPopulation[0] = INIT_AGENTS;
 	CUDA_CALL(cudaMemcpy(piPopulation,pihPopulation,sizeof(int),cudaMemcpyHostToDevice));
 
+	// the static agents counter
+	int* piStaticAgents;
+	CUDA_CALL(cudaMalloc((void**)&piStaticAgents,sizeof(int)));
+	
+	// and its host-side copy
+	int* pihStaticAgents = (int*) malloc(sizeof(int));
+	
 	cudaDeviceSynchronize();
 
 	// timing
@@ -149,7 +156,7 @@ int main (int argc , char* argv [])
 	// count occupancy and store residents
 
 	int status = exercise_locks(COUNT,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pigGridBits,pigResidents,piaQueueA,
-		piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses,pihDeferredQueueSize,pihLockSuccesses);
+		piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses,pihDeferredQueueSize,pihLockSuccesses,piStaticAgents,pihStaticAgents);
 
 	//   end timing
 	cudaThreadSynchronize();
@@ -161,13 +168,13 @@ int main (int argc , char* argv [])
 	printf ("Counting %d agents takes %f milliseconds\n",(int) pihPopulation[0], (float) elapsed_time);
 
 	// main loop
-		while(pihPopulation[0] > 10) {
+//		while(pihPopulation[0] > 10) {
 		// time movement
 		cudaEventRecord(start,0);
 
 		// do movement
 		status = exercise_locks(MOVE,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pigGridBits,pigResidents,piaQueueA,
-			piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses,pihDeferredQueueSize,pihLockSuccesses);
+			piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses,pihDeferredQueueSize,pihLockSuccesses,piStaticAgents,pihStaticAgents);
 		cudaDeviceSynchronize();
 
 		//   end timing
@@ -202,7 +209,7 @@ int main (int argc , char* argv [])
 		cudaEventRecord(start,0);
 
 		status = exercise_locks(DIE,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pigGridBits,pigResidents,piaQueueA,
-			piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses,pihDeferredQueueSize,pihLockSuccesses);
+			piPopulation,pihPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses,pihDeferredQueueSize,pihLockSuccesses,piStaticAgents,pihStaticAgents);
 
 		//   end timing
 		cudaThreadSynchronize();
@@ -227,7 +234,7 @@ int main (int argc , char* argv [])
 		cudaEventElapsedTime(&elapsed_time, start, end);
 		cudaDeviceSynchronize();
 		printf ("Growing sugar and spice on %d squares takes %f milliseconds\n",(int) GRID_SIZE*GRID_SIZE, (float) elapsed_time);
-	}
+//	}
 
 	// Cleanup 
 	CUDA_CALL(cudaFree(psaX));
