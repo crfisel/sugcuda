@@ -33,7 +33,7 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 	}
 	CUDA_CALL(cudaMemcpy(piaQueueA,piahTemp,pihPopulation[0]*sizeof(int),cudaMemcpyHostToDevice));
 
-	// blank the deferred queue with all bits=1
+	// blank the deferred queue with all bits=-1
 	CUDA_CALL(cudaMemset(piaQueueB,0xFF,pihPopulation[0]*sizeof(int)));
 
 	// zero the deferred queue size
@@ -65,7 +65,7 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 		default:
 			break;
 	}
-	cudaDeviceSynchronize();
+	CUDA_CALL(cudaDeviceSynchronize());
 
 	// check if any agents had to be deferred
 	CUDA_CALL(cudaMemcpy(pihDeferredQueueSize,piDeferredQueueSize,sizeof(int),cudaMemcpyDeviceToHost));
@@ -124,7 +124,7 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 					break;
 			}
 		}
-		cudaDeviceSynchronize();
+		CUDA_CALL(cudaDeviceSynchronize());
 		hQueue = !hQueue;
 		CUDA_CALL(cudaMemcpy(pihDeferredQueueSize,piDeferredQueueSize,sizeof(int),cudaMemcpyDeviceToHost));
 		printf ("secondary deferrals:%d \n",pihDeferredQueueSize[0]);
@@ -172,7 +172,7 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 					break;
 			}
 		}
-		cudaDeviceSynchronize();
+		CUDA_CALL(cudaDeviceSynchronize());
 	}
 
 	// cleanup

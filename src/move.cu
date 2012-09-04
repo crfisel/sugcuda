@@ -11,8 +11,11 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 	int* piaDeferredQueue, int* piDeferredQueueSize, int* piLockSuccesses, int* piStaticAgents)
 {
 	GridBitWise gbwBits;
+	GridBitWise gbwNewBits;
 	int iFlag = 0;
-	bool lockFailed = false;
+	bool lockSuccess = false;
+	int iOldAddy;
+	int iNewAddy;
 
 	// get the iAgentID from the active agent queue
 	int iOffset = threadIdx.x + blockIdx.x*blockDim.x;
@@ -27,86 +30,39 @@ __global__ void best_move_by_traversal(short* psaX, short* psaY, int* piaAgentBi
 			if (sXStore == sXCenter && sYStore == sYCenter) {
 				iFlag = atomicAdd(piStaticAgents,1);
 			} else {
-			// if a move is warranted, lock old and new address - if either fails, defer
+				// if a move is warranted, lock old and new address
+				iOldAddy = sXCenter*GRID_SIZE+sYCenter;
+				// lock agent's current address in the grid
+				lockSuccess = lock(iOldAddy,&gbwBits,pigGridBits);
+				if (lockSuccess) {
+					// if lock succeeded, lock agent's new address in the grid
+					iNewAddy = sXStore*GRID_SIZE+sYStore;
+					lockSuccess = lockSuccess && lock(iNewAddy,&gbwNewBits,pigGridBits);
+					if (lockSuccess) {
+						// note that both locks succeeded
+						iFlag = atomicAdd(piLockSuccesses,1);
 
-				// agent's current address in the grid
-				int iOldAddy = sXCenter*GRID_SIZE+sYCenter;
-				// unpack grid bits
-				gbwBits.asInt = pigGridBits[iOldAddy];
-			
-				// test if old square is locked
-				if (gbwBits.asBits.isLocked != 0) {
-					// if so, lock failed
-					lockFailed = true;
-				} else {
-					// if not, make a copy, but indicating locked
-					GridBitWise gbwBitsCopy = gbwBits;
-					gbwBitsCopy.asBits.isLocked = 1;
-
-					// now lock the current address if possible
-					int iLockedOld = atomicCAS(&(pigGridBits[iOldAddy]),gbwBits.asInt,gbwBitsCopy.asInt);
-					// test if the lock failed
-					if (iLockedOld != gbwBits.asInt) {
-						lockFailed = true;
-					} else {
-						// at this point, old square is locked and a valid copy of its bits are in gbwBitsCopy (because locked)
-						// agent's new address in the grid
-						int iNewAddy = sXStore*GRID_SIZE+sYStore;
-						// unpack grid bits
-						GridBitWise gbwNewBits;
-						gbwNewBits.asInt = pigGridBits[iNewAddy];
-			
-						// test if new square is locked
-						if (gbwNewBits.asBits.isLocked != 0) {
-							// if so, lock failed
-							lockFailed = true;
-							// unlock old square by replacing the old (unlocked) bits
-							iFlag = atomicExch(&(pigGridBits[iOldAddy]),gbwBits.asInt);
-
+						// valid copies of the grid bits of both squares are in the "gbw" variables
+						// before moving the resident, check that old occupancy was positive
+						// and that new address is not already full 
+						if (gbwBits.asBits.occupancy > 0 && gbwNewBits.asBits.occupancy < MAX_OCCUPANCY) {
+							remove_resident(&(gbwBits.asInt),iOldAddy,pigResidents,iAgentID);
+							insert_resident(&(gbwNewBits.asInt),iNewAddy,pigResidents,psaX,psaY,sXStore,sYStore,iAgentID);
 						} else {
-							// if not, make a copy, but indicating locked
-							GridBitWise gbwNewBitsCopy = gbwNewBits;
-							gbwNewBitsCopy.asBits.isLocked = 1;
-
-							// now lock the new address if possible
-							int iLockedNew = atomicCAS(&(pigGridBits[iNewAddy]),gbwNewBits.asInt,gbwNewBitsCopy.asInt);
-
-							// test if the lock failed
-							if (iLockedNew != gbwNewBits.asInt) {
-								lockFailed = true;
-								// unlock old square by replacing the old (unlocked) bits
-								iFlag = atomicExch(&(pigGridBits[iOldAddy]),gbwBits.asInt);
-							} else {
-								// at this point the squares are locked and valid copies are in the "copy" variables
-								iFlag = atomicAdd(piLockSuccesses,1);
-
-								// before inserting new resident, check for nonzero old occupancy (negatives forbidden by unsigned short declaration)
-								// and make sure new address is not already full 
-								if (gbwBitsCopy.asBits.occupancy <= 0 || 
-									gbwNewBitsCopy.asBits.occupancy >= MAX_OCCUPANCY) {
-									
-									// unlock with no changes
-									iFlag = atomicExch(&(pigGridBits[iNewAddy]),gbwNewBits.asInt);
-									iFlag = atomicExch(&(pigGridBits[iOldAddy]),gbwBits.asInt);
-									
-									// indicate an error
-									printf("over occ %d at x:%d y:%d or under occ %d at x:%d y:%d agent %d\n",
-										gbwNewBitsCopy.asBits.occupancy,sXStore,sYStore,gbwBitsCopy.asBits.occupancy,sXCenter,sYCenter,iAgentID);
-								} else {
-									remove_resident(&(gbwBitsCopy.asInt),iOldAddy,pigResidents,iAgentID);
-									insert_resident(&(gbwNewBitsCopy.asInt),iNewAddy,pigResidents,psaX,psaY,sXStore,sYStore,iAgentID);
-								} 
-								// unlock and update global occupancy values
-								gbwNewBitsCopy.asBits.isLocked = 0;
-								iFlag = atomicExch(&(pigGridBits[iNewAddy]),gbwNewBitsCopy.asInt);
-								gbwBitsCopy.asBits.isLocked = 0;
-								iFlag = atomicExch(&(pigGridBits[iOldAddy]),gbwBitsCopy.asInt);
-							}
-						}
+							// indicate an error
+							printf("over occ %d to x:%d y:%d or under occ %d from x:%d y:%d agent %d\n",
+								gbwNewBits.asBits.occupancy,sXStore,sYStore,gbwBits.asBits.occupancy,sXCenter,sYCenter,iAgentID);
+						} 
+						// unlock and update global occupancy values
+						gbwNewBits.asBits.isLocked = 0;
+						iFlag = atomicExch(&(pigGridBits[iNewAddy]),gbwNewBits.asInt);
 					}
+					// unlock and update global occupancy values
+					gbwBits.asBits.isLocked = 0;
+					iFlag = atomicExch(&(pigGridBits[iOldAddy]),gbwBits.asInt);	
 				}
 				// if a move was warranted, but lock failures prevented it, defer
-				if (lockFailed) {
+				if (!lockSuccess) {
 					// if either lock failed or either agent was already locked, add the agent to the deferred queue
 					iFlag = atomicAdd(piDeferredQueueSize,1);
 					piaDeferredQueue[iFlag]=iAgentID;

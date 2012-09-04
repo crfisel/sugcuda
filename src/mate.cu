@@ -5,9 +5,8 @@
 #include "bitwisetype.h"
 #include "mate.h"
 
-__global__ void mate(short* psaX, short* psaY, short* psgOccupancy, int* pigResidents, int* pigLocks, 
-		int* piaActiveQueue, const int ciActiveQueueSize, int* piaDeferredQueue, int* piDeferredQueueSize, 
-		int* piLockSuccesses)
+__global__ void mate(short* psaX, short* psaY, short* pigGridBits, int* pigResidents, int* piaActiveQueue, 
+	const int ciActiveQueueSize, int* piaDeferredQueue, int* piDeferredQueueSize, int* piLockSuccesses)
 {
 	int iAgentID;
 	int iMateID;

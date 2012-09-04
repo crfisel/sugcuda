@@ -11,6 +11,34 @@
 #include <cuda.h>
 #include "bitwise.h"
 
+__forceinline__ __device__ bool lock(int iAddy, GridBitWise* gbwBits, int* pigGridBits)
+{
+	bool status = false;
+	
+	// unpack grid bits
+	gbwBits->asInt = pigGridBits[iAddy];
+	
+	// test if square is locked
+	if (gbwBits->asBits.isLocked == 0) {
+	
+		// if so, make a copy, but indicating locked
+		GridBitWise gbwBitsCopy;
+		gbwBitsCopy.asInt = gbwBits->asInt;
+		gbwBitsCopy.asBits.isLocked = 1;
+		
+		// now lock the address if possible
+		int iLocked = atomicCAS(&(pigGridBits[iAddy]),gbwBits->asInt,gbwBitsCopy.asInt);
+		
+		// test if the lock worked
+		if (iLocked == gbwBits->asInt) {
+			status = true;
+			gbwBits->asInt = gbwBitsCopy.asInt;
+		}
+	}
+	return status;
+}
+
+
 __forceinline__ __device__ void remove_resident(int* piBits, int iAddy, int* pigResidents, int iAgentID)
 {
 	// convert to bitwise
@@ -50,9 +78,8 @@ __forceinline__ __device__ void insert_resident(int* piBits, int iAddy, int* pig
 	} else {
 
 		//otherwise notify about the error
-		printf ("agent replaced %d at x:%d y:%d \n",
-			pigResidents[iAddy*MAX_OCCUPANCY+gbwTemp.asBits.occupancy],
-			sXStore,sYStore);
+		printf ("agent %d replaced %d at x:%d y:%d \n",
+			iAgentID,pigResidents[iAddy*MAX_OCCUPANCY+gbwTemp.asBits.occupancy],sXStore,sYStore);
 	}
 	*piBits = gbwTemp.asInt;
 }
