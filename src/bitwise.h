@@ -36,7 +36,7 @@ union GridBitWise
 		unsigned short spice : 4;
 		unsigned short maxSugar : 4;
 		unsigned short maxSpice : 4;
-		unsigned short pad : 10;
+		unsigned short pad : 11;
 	} asBits;
     	int asInt;
 };

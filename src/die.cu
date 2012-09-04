@@ -68,7 +68,7 @@ __global__ void register_deaths(short* psaX, short* psaY, int* piaAgentBits, flo
 								gbwBitsCopy.asBits.occupancy,psaX[iAgentID],psaY[iAgentID],iAgentID,pigResidents[iAddy*MAX_OCCUPANCY]);
 
 						} else {
-							remove_resident(&(gbwBitsCopy.asInt),iAddy,pigResidents,iAgentID);
+							remove_resident(&gbwBitsCopy,iAddy,pigResidents,iAgentID);
 							
 							// TODO: INHERITANCE MUST BE HANDLED BEFORE X POSITION INFO IS ERASED
 							// mark agent as dead
@@ -128,7 +128,7 @@ __global__ void register_deaths_fs(short* psaX, short* psaY, int* piaAgentBits,
 						printf("under occ %d at x:%d y:%d agent %d\n",gbwBits.asBits.occupancy,psaX[iAgentID],psaY[iAgentID],iAgentID);
 
 					} else {
-						remove_resident(&(gbwBits.asInt),iAddy,pigResidents,iAgentID);
+						remove_resident(&gbwBits,iAddy,pigResidents,iAgentID);
 
 						// TODO: INHERITANCE MUST BE HANDLED BEFORE X POSITION INFO IS ERASED
 						// mark agent as dead
