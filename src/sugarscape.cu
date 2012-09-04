@@ -214,6 +214,8 @@ int main (int argc , char* argv [])
 		CUDA_CALL(cudaMemcpy(pihPopulation,piPopulation,sizeof(int),cudaMemcpyDeviceToHost));
 		printf ("Registering deaths among %d agents takes %f milliseconds\n",(int) pihPopulation[0], (float) elapsed_time);
 
+		cudppSort(CUDPP_OPTION_KEY_VALUE_PAIRS,*d_keys,*d_values,numElements)
+                      
 		// time regrowth
 		cudaEventRecord(start,0);
 
