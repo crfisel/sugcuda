@@ -34,9 +34,9 @@ __global__ void initialize_agentbits(unsigned int* theRandoms, int* target)
 __global__ void fill_positions(unsigned int* theRandoms, short* psaX, short* psaY)
 {
 	int iAgentID = threadIdx.x + blockIdx.x*blockDim.x;
-	unsigned int adjusted = theRandoms[iAgentID] & (GRID_SIZE*GRID_SIZE-1);
+	unsigned int adjusted = theRandoms[iAgentID] % (GRID_SIZE*GRID_SIZE);
 	psaX[iAgentID] = adjusted / GRID_SIZE;
-	psaY[iAgentID] = adjusted & (GRID_SIZE-1);
+	psaY[iAgentID] = adjusted % GRID_SIZE;
 //	printf("%d:%d\n",psaX[iAgentID],psaY[iAgentID]);
 }
 

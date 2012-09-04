@@ -68,19 +68,7 @@ __global__ void register_deaths(short* psaX, short* psaY, int* piaAgentBits, flo
 								gbwBitsCopy.asBits.occupancy,psaX[iAgentID],psaY[iAgentID],iAgentID,pigResidents[iAddy*MAX_OCCUPANCY]);
 
 						} else {
-							// find match starting at end of list
-							short k = --gbwBitsCopy.asBits.occupancy;
-
-							// remove current id - if not at the end, replace it with the one from the end and store -1 at end
-							if (pigResidents[iAddy*MAX_OCCUPANCY+k] == iAgentID) {
-								pigResidents[iAddy*MAX_OCCUPANCY+k] = -1;
-							} else {
-								while (pigResidents[iAddy*MAX_OCCUPANCY+k] != iAgentID && k >= 0) {k--;}
-								if (k != gbwBitsCopy.asBits.occupancy) {
-									pigResidents[iAddy*MAX_OCCUPANCY+k] = pigResidents[iAddy*MAX_OCCUPANCY+gbwBitsCopy.asBits.occupancy];
-									pigResidents[iAddy*MAX_OCCUPANCY+gbwBitsCopy.asBits.occupancy] = -1;
-								}
-							}
+							remove_resident(&(gbwBitsCopy.asInt),iAddy,pigResidents,iAgentID);
 							
 							// TODO: INHERITANCE MUST BE HANDLED BEFORE X POSITION INFO IS ERASED
 							// mark agent as dead
@@ -140,19 +128,7 @@ __global__ void register_deaths_fs(short* psaX, short* psaY, int* piaAgentBits,
 						printf("under occ %d at x:%d y:%d agent %d\n",gbwBits.asBits.occupancy,psaX[iAgentID],psaY[iAgentID],iAgentID);
 
 					} else {
-						// find match starting at end of list
-						short k = --gbwBits.asBits.occupancy;
-
-						// remove current id - if not at the end, replace it with the one from the end and store -1 at end
-						if (pigResidents[iAddy*MAX_OCCUPANCY+k] == iAgentID) {
-							pigResidents[iAddy*MAX_OCCUPANCY+k] = -1;
-						} else {
-							while (pigResidents[iAddy*MAX_OCCUPANCY+k] != iAgentID && k >= 0) {k--;}
-							if (k != gbwBits.asBits.occupancy) {
-								pigResidents[iAddy*MAX_OCCUPANCY+k] = pigResidents[iAddy*MAX_OCCUPANCY+gbwBits.asBits.occupancy];
-								pigResidents[iAddy*MAX_OCCUPANCY+gbwBits.asBits.occupancy] = -1;
-							}
-						}							
+						remove_resident(&(gbwBits.asInt),iAddy,pigResidents,iAgentID);
 
 						// TODO: INHERITANCE MUST BE HANDLED BEFORE X POSITION INFO IS ERASED
 						// mark agent as dead

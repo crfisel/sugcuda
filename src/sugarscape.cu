@@ -18,22 +18,6 @@
 #include "age.h"
 #include "exercise_locks.h"
 #include "grow_back1.h"
-#include "aggregate.h"
-
-enum ReduceType
-{
-    REDUCE_INT,
-    REDUCE_FLOAT,
-    REDUCE_DOUBLE
-};
-
-#define MAX_BLOCK_DIM_SIZE 65535
-
-extern "C"
-bool isPow2(unsigned int x)
-{
-    return ((x&(x-1))==0);
-}
 
 int main (int argc , char* argv [])
 {
@@ -177,7 +161,7 @@ int main (int argc , char* argv [])
 	printf ("Counting %d agents takes %f milliseconds\n",(int) pihPopulation[0], (float) elapsed_time);
 
 	// main loop
-		while(pihPopulation[0] > 10) {
+//		while(pihPopulation[0] > 10) {
 		// time movement
 		cudaEventRecord(start,0);
 
@@ -194,7 +178,7 @@ int main (int argc , char* argv [])
 		cudaEventElapsedTime(&elapsed_time, start, end);
 
 		printf ("Moving %d agents takes %f milliseconds\n",(int) pihPopulation[0], (float) elapsed_time);
-
+/*
 		// time harvest, meal and aging
 		cudaEventRecord(start,0);
 
@@ -244,7 +228,7 @@ int main (int argc , char* argv [])
 		cudaDeviceSynchronize();
 		printf ("Growing sugar and spice on %d squares takes %f milliseconds\n",(int) GRID_SIZE*GRID_SIZE, (float) elapsed_time);
 	}
-
+*/
 	// Cleanup 
 	CUDA_CALL(cudaFree(psaX));
 	CUDA_CALL(cudaFree(psaY));

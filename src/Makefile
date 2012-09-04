@@ -34,7 +34,7 @@
 ################################################################################
 
 # Add source files here
-EXECUTABLE	:= sugarscape_noinlines
+EXECUTABLE	:= sugarscape_splitmove
 
 # Includes
 INCLUDES  += -I/home/sammy/cudpp_src_2.0/include -I/home/sammy/cudpp_src_2.0/apps/common/include

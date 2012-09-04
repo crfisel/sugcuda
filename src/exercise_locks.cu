@@ -24,7 +24,8 @@ int exercise_locks(short routine, short* psaX, short* psaY, int* piaAgentBits, f
 	
 	// sync the host and device readings of population
 	CUDA_CALL(cudaMemcpy(pihPopulation,piPopulation,sizeof(int),cudaMemcpyDeviceToHost));
-
+	cudaDeviceSynchronize();
+	
 	// fill the agent queue with increasing (later random) id's
 	int* piahTemp = (int*) malloc(pihPopulation[0]*sizeof(int));
 	for (int i = 0; i < pihPopulation[0]; i++) {
