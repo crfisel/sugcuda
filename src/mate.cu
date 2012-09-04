@@ -1,3 +1,10 @@
+/*
+ * mate.cu
+ *
+ *  Created on: Dec 4, 2011
+ *      Author: C. Richard Fisel
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda.h>
@@ -23,7 +30,7 @@ __noinline__ __device__ bool is_fertile_masked(int iAgentID, int* pbaAgentBits, 
 	bool ydResult = (psaX[iAgentID] > -1) &&
 			(age > startFertilityAge + 12) &&
 			(age < 2*endFertilityAge + 40);
-//	if (ydResult) printf("agent %d is fertile\n",iAgentID);
+	//	if (ydResult) printf("agent %d is fertile\n",iAgentID);
 	return ydResult;
 }
 
@@ -33,12 +40,12 @@ __noinline__ __device__ bool is_acceptable_mate_masked(int iMateID, int* pbaAgen
 
 	// make sure this is not an "empty" placeholder
 	acceptable = (iMateID > -1 &&
-		// make sure he's male
-		((pbaAgentBits[iMateID])&isFemaleMask)>>30 == 0 &&
-		// and alive
-		psaX[iMateID] > -1 &&
-		// and fertile
-		is_fertile_masked(iMateID,pbaAgentBits,psaX));
+			// make sure he's male
+			(((pbaAgentBits[iMateID])&isFemaleMask)>>30) == 0 &&
+			// and alive
+			psaX[iMateID] > -1 &&
+			// and fertile
+			is_fertile_masked(iMateID,pbaAgentBits,psaX));
 	return acceptable;
 }
 __noinline__ __device__ bool lock_potential_mate_masked(int iMateID, int* pbaAgentBits)
@@ -107,7 +114,7 @@ __noinline__ __device__ bool lock_potential_mate(int iMateID, short* psaX, int* 
 	return lockSuccess;
 }
 /*
-__global__ void mate_once(short* psaX, short* psaY, int* pbaAgentBits, unsigned int* piaRandoms,
+__global__ void mate_once(short* psaX, short* psaY, int* pbaAgentBits, curandState* paStates,
 		float* pfaSugar, float* pfaSpice, float* pfaInitialSugar, float* pfaInitialSpice,
 		int* pigGridBits, int* pigResidents, int* piaActiveQueue, const int ciActiveQueueSize, int* piPopulation, int* piaDeferredQueue,
 		int* piDeferredQueueSize, int* piLockSuccesses)
@@ -232,7 +239,7 @@ __global__ void mate_once(short* psaX, short* psaY, int* pbaAgentBits, unsigned 
 											iTemp = atomicExch(&(pbaAgentBits[iMateID]),abwMateBits.asInt);
 										}
 									}
-					*/		/*	}
+ */		/*	}
 							}
 						}
 					}
@@ -253,8 +260,8 @@ __global__ void mate_once(short* psaX, short* psaY, int* pbaAgentBits, unsigned 
 	}
 	return;
 }
-*/
-__global__ void mate_masked(short* psaX, short* psaY, int* pbaAgentBits, unsigned int* piaRandoms,
+  */
+__global__ void mate_masked(curandState* paStates, short* psaX, short* psaY, int* pbaAgentBits,
 		float* pfaSugar, float* pfaSpice, float* pfaInitialSugar, float* pfaInitialSpice,
 		int* pigGridBits, int* pigResidents, int* piaActiveQueue, const int ciActiveQueueSize, int* piPopulation, int* piaDeferredQueue,
 		int* piDeferredQueueSize, int* piLockSuccesses)
@@ -278,9 +285,11 @@ __global__ void mate_masked(short* psaX, short* psaY, int* pbaAgentBits, unsigne
 		iAgentID = piaActiveQueue[iOffset];
 
 		// live, fertile, solvent female agents only
-		printf("fertile %d bits %x\n",is_fertile_masked(iAgentID,pbaAgentBits,psaX),(pbaAgentBits[iAgentID])); //((pbaAgentBits[iAgentID])&isFemaleMask)>>30); // == 1 &&
-//				(pfaSugar[iAgentID] > pfaInitialSugar[iAgentID]) && (pfaSpice[iAgentID] > pfaInitialSpice[iAgentID])) {
-		/*	iAddy = psaX[iAgentID]*GRID_SIZE+psaY[iAgentID];
+		if (is_fertile_masked(iAgentID,pbaAgentBits,psaX) &&
+				(((pbaAgentBits[iAgentID])&isFemaleMask)>>30) == 1 &&
+				(pfaSugar[iAgentID] > pfaInitialSugar[iAgentID]) &&
+				(pfaSpice[iAgentID] > pfaInitialSpice[iAgentID]) ) {
+			iAddy = psaX[iAgentID]*GRID_SIZE+psaY[iAgentID];
 			// need to have room on the grid for the kid
 			isGridLocked = lock(iAddy,&gbwBits,pigGridBits);
 			if (isGridLocked) {
@@ -295,11 +304,11 @@ __global__ void mate_masked(short* psaX, short* psaY, int* pbaAgentBits, unsigne
 								if (!mated) {
 									// get the potential mate's id
 									iMateID = pigResidents[iAddyTry*MAX_OCCUPANCY+sOccTry];
-									printf("%d\n",iOffset);
 									// vet his internal properties
 									if (is_acceptable_mate_masked(iMateID,pbaAgentBits,psaX)) {
+									printf("agent %d is checking out agent %d\n",iAgentID,iMateID);
 										// if acceptable, try to lock him
-										isMateLocked = lock_potential_mate_masked(iMateID,pbaAgentBits);
+/*										isMateLocked = lock_potential_mate_masked(iMateID,pbaAgentBits);
 
 										// to get to this point isGridLocked must be true, so this is a logical AND
 										if (isMateLocked) {
@@ -318,10 +327,11 @@ __global__ void mate_masked(short* psaX, short* psaY, int* pbaAgentBits, unsigne
 												insert_resident(&(gbwBits.asInt),iAddy,pigResidents,psaX,psaY,psaX[iAgentID],psaY[iAgentID],iChildID);
 
 												// set internal properties of baby
-/*												AgentBitWise abwBaby;
+												AgentBitWise abwBaby;
 												abwBaby.asBits.age = 0;
 												abwBaby.asBits.pad = 0;
 												abwBaby.asBits.isLocked = 0;
+												curandState localState = paStates[iOffset];
 
 												// baby's sex is random
 												abwBaby.asBits.isFemale = buRandoms.asBits.b16;
@@ -369,9 +379,9 @@ __global__ void mate_masked(short* psaX, short* psaY, int* pbaAgentBits, unsigne
 												// TODO: give both parents memory of child's id for future inheritance
 											}
 											// unlock mate
-						//					iTemp = atomicExch(&(pbaAgentBits[iMateID]),abwMateBits.asInt);
+											iTemp = atomicExch(&(pbaAgentBits[iMateID]),abwMateBits.asInt);
 										}
-									}
+								*/	}
 								}
 							}
 						}
@@ -380,16 +390,16 @@ __global__ void mate_masked(short* psaX, short* psaY, int* pbaAgentBits, unsigne
 					// if square is already full, indicate an error
 					printf("over occupancy %d to x:%d y:%d\n",gbwBits.asBits.occupancy,psaX[iAgentID],psaY[iAgentID]);
 				}
-				// unlock square and update global occupancy values
-				gbwBits.asBits.isLocked = 0;
-				iTemp = atomicExch(&(pigGridBits[iAddy]),gbwBits.asInt);
-			}
-			// if either lock failed, add the agent to the deferred queue
-			if (!isGridLocked || !isMateLocked) {
-				iTemp = atomicAdd(piDeferredQueueSize,1);
-				piaDeferredQueue[iTemp]=iAgentID;
+					// unlock square and update global occupancy values
+					gbwBits.asBits.isLocked = 0;
+					iTemp = atomicExch(&(pigGridBits[iAddy]),gbwBits.asInt);
+				}
+				// if either lock failed, add the agent to the deferred queue
+				if (!isGridLocked || !isMateLocked) {
+					iTemp = atomicAdd(piDeferredQueueSize,1);
+					piaDeferredQueue[iTemp]=iAgentID;
+				}
 			}
 		}
-*/	}
-	return;
-}
+		return;
+	}

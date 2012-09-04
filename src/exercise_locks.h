@@ -10,7 +10,7 @@
 
 enum operation {COUNT, MOVE, DIE, MATE};
 
-int exercise_locks (operation , short* , short* , int* , unsigned int* ,
+int exercise_locks (operation , curandState* , short* , short* , int* ,
 	float* , float* , float* , float* ,
 	int* , int* , int* , int* , int* , int* , int* , int* , int* , int* , int* , int* );
 

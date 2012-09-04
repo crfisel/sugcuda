@@ -41,12 +41,14 @@ __forceinline__ __device__ float stretched_value(short x, short y)
 	return (float) sTemp;
 }
 
-__global__ void initialize_food(unsigned int* , float* , float );
+__global__ void setup_kernel(curandState* );
 
-__global__ void initialize_agentbits(unsigned int* , int* );
+__global__ void initialize_food(float* pfaSugar, float* pfaSpice, curandState* paStates, float range);
 
-__global__ void fill_positions(unsigned int* , short* , short* );
+__global__ void initialize_agentbits(curandState* paStates, int* target);
 
-__global__ void initialize_gridbits(unsigned int* , int* , grid_layout );
+__global__ void fill_positions(curandState* paStates, short* psaX, short* psaY, short range);
+
+__global__ void initialize_gridbits(curandState* pgStates, int* target, grid_layout gridCode);
 
 #endif //RANDOMS_H

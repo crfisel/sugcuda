@@ -7,16 +7,15 @@
 
 #include <stdlib.h>
 #include <cuda.h>
+#include <curand_kernel.h>
 #include "symbolic_constants.h"
 #include "bitwise.h"
 #include "harvest.h"
 
-__global__ void harvest(unsigned int* pigRandoms, short* psaX, float* pfaSugar, float* pfaSpice,
+__global__ void harvest(curandState* pgStates, short* psaX, float* pfaSugar, float* pfaSpice,
 		int* pigGridBits, int* pigResidents)
 {
-	short sX = blockIdx.x;
-	short sY = threadIdx.x;
-	int iAddy = sX*blockDim.x+sY;
+	int iAddy = blockIdx.x*blockDim.x+threadIdx.x;
 	int iAgentID;
 	short iOffset;
 	GridBitWise gbwBits;
@@ -39,8 +38,8 @@ __global__ void harvest(unsigned int* pigRandoms, short* psaX, float* pfaSugar, 
 		}
 		break;
 	default:
-		float fTemp = pigRandoms[iAddy]*gbwBits.asBits.occupancy/UINT_MAX;
-		iOffset = fTemp;
+		curandState localState = pgStates[iAddy];
+		iOffset = curand_uniform(&localState)*(gbwBits.asBits.occupancy);
 		iAgentID = pigResidents[iAddy*MAX_OCCUPANCY+iOffset];
 
 		// if the agent is alive
@@ -52,6 +51,7 @@ __global__ void harvest(unsigned int* pigRandoms, short* psaX, float* pfaSugar, 
 			gbwBits.asBits.spice = 0;
 			pigGridBits[iAddy] = gbwBits.asInt;
 		}
+		pgStates[iAddy] = localState;
 		break;
 	}
 	return;

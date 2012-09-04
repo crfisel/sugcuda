@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda.h>
+#include <curand.h>
+#include <curand_kernel.h>
 #include "symbolic_constants.h"
 #include "bitwise.h"
 #include "exercise_locks.h"
@@ -17,7 +19,7 @@
 #include "die.h"
 
 
-int exercise_locks(operation routine, short* psaX, short* psaY, int* piaAgentBits, unsigned int* piaRandoms,
+int exercise_locks(operation routine, curandState* paStates, short* psaX, short* psaY, int* piaAgentBits,
 	float* pfaSugar, float* pfaSpice, float* pfaInitialSugar, float* pfaInitialSpice,
 	int* pigGridBits, int* pigResidents, int* piaQueueA, int* piPopulation, int* pihPopulation, int* piaQueueB,
 	int* piDeferredQueueSize, int* piLockSuccesses, int* pihDeferredQueueSize, int* pihLockSuccesses,
@@ -62,7 +64,7 @@ int exercise_locks(operation routine, short* psaX, short* psaY, int* piaAgentBit
 //			printf ("static agents:%d \n",pihStaticAgents[0]);
 			break;
 		case MATE:
-			mate_masked<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,piaRandoms,pfaSugar,pfaSpice,pfaInitialSugar,pfaInitialSpice,
+			mate_masked<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(paStates,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pfaInitialSugar,pfaInitialSpice,
 				pigGridBits,pigResidents,piaQueueA,pihPopulation[0],piPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 			break;
 		case DIE:
@@ -103,7 +105,7 @@ int exercise_locks(operation routine, short* psaX, short* psaY, int* piaAgentBit
 //					printf ("static agents (cumulative):%d \n",pihStaticAgents[0]);
 					break;
 				case MATE:
-					mate_masked<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,piaRandoms,pfaSugar,pfaSpice,pfaInitialSugar,pfaInitialSpice,
+					mate_masked<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(paStates,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pfaInitialSugar,pfaInitialSpice,
 						pigGridBits,pigResidents,piaQueueB,ihActiveQueueSize,piPopulation,piaQueueA,piDeferredQueueSize,piLockSuccesses);
 					break;
 				case DIE:
@@ -128,7 +130,7 @@ int exercise_locks(operation routine, short* psaX, short* psaY, int* piaAgentBit
 //					printf ("static agents (cumulative):%d \n",pihStaticAgents[0]);
 					break;
 				case MATE:
-					mate_masked<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,psaY,piaAgentBits,piaRandoms,pfaSugar,pfaSpice,pfaInitialSugar,pfaInitialSpice,
+					mate_masked<<<hiNumBlocks,NUM_THREADS_PER_BLOCK>>>(paStates,psaX,psaY,piaAgentBits,pfaSugar,pfaSpice,pfaInitialSugar,pfaInitialSpice,
 						pigGridBits,pigResidents,piaQueueA,ihActiveQueueSize,piPopulation,piaQueueB,piDeferredQueueSize,piLockSuccesses);
 					break;
 				case DIE:

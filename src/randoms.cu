@@ -1,51 +1,66 @@
 #include <stdio.h>
 #include <cuda.h>
+#include <curand_kernel.h>
 #include "symbolic_constants.h"
 #include "bitwise.h"
 #include "randoms.h"
 
-__global__ void initialize_food(unsigned int* piaRandoms, float* target, float range)
+__global__ void setup_kernel(curandState* state)
 {
-	int iAgentID = threadIdx.x + blockIdx.x*blockDim.x;
-	target[iAgentID] = piaRandoms[iAgentID]*range/UINT_MAX;
-//	printf("%f\n",target[iAgentID]);
-}
-__global__ void initialize_agentbits(unsigned int* piaRandoms, int* target)
-{
-	int iAgentID = threadIdx.x + blockIdx.x*blockDim.x;
-	BitUnpacker buTemp;
-	AgentBitWise abwTemp;
-	buTemp.asUInt = piaRandoms[iAgentID];
-	
-	abwTemp.asBits.isFemale = buTemp.asBits.b1;
-	abwTemp.asBits.vision = buTemp.asBits.b2+2*buTemp.asBits.b3;
-	abwTemp.asBits.metSugar = buTemp.asBits.b4+2*buTemp.asBits.b5;
-	abwTemp.asBits.metSpice = buTemp.asBits.b6+2*buTemp.asBits.b7;
-	abwTemp.asBits.startFertilityAge = buTemp.asBits.b8+2*buTemp.asBits.b9;
-	abwTemp.asBits.endFertilityAge = buTemp.asBits.b10+2*buTemp.asBits.b11+4*buTemp.asBits.b12+8*buTemp.asBits.b13;
-	abwTemp.asBits.deathAge = buTemp.asBits.b14+2*buTemp.asBits.b15+4*buTemp.asBits.b16+8*buTemp.asBits.b17+16*buTemp.asBits.b18;
-	abwTemp.asBits.pad = 0x3F;
-	abwTemp.asBits.isLocked = 0;
-	float fTemp = buTemp.asBits.b19+2*buTemp.asBits.b20+4*buTemp.asBits.b21+8*buTemp.asBits.b22+16*buTemp.asBits.b23+32*buTemp.asBits.b24+64*buTemp.asBits.b25;
-	abwTemp.asBits.age = fTemp*60.0f/127.0f;
-	
-	target[iAgentID] = abwTemp.asInt;
-}
-__global__ void fill_positions(unsigned int* piaRandoms, short* psaX, short* psaY)
-{
-	int iAgentID = threadIdx.x + blockIdx.x*blockDim.x;
-	unsigned int adjusted = piaRandoms[iAgentID]; // % (GRID_SIZE*GRID_SIZE);
-	psaX[iAgentID] = adjusted/GRID_SIZE;
-	psaY[iAgentID] = adjusted&(GRID_SIZE-1); // same as % GRID_SIZE
-//	printf("%d:%d\n",psaX[iAgentID],psaY[iAgentID]);
+	int id = threadIdx.x + blockIdx.x*blockDim.x;
+	/* Each thread gets same seed, a different sequence number, no offset */
+	curand_init (1234,id,0,&state[id]);
 }
 
-__global__ void initialize_gridbits(unsigned int* pigRandoms, int* target, grid_layout gridCode)
+__global__ void initialize_food(float* pfaSugar, float* pfaSpice, curandState* paStates, float range)
+{
+	int iAgentID = threadIdx.x + blockIdx.x*blockDim.x;
+	curandState localState = paStates[iAgentID];
+
+	pfaSugar[iAgentID] = curand_uniform(&localState)*range;
+	pfaSpice[iAgentID] = curand_uniform(&localState)*range;
+
+	paStates[iAgentID] = localState;
+
+//	printf("%f, %f\n",pfaSugar[iAgentID],pfaSpice[iAgentID]);
+}
+__global__ void initialize_agentbits(curandState* paStates, int* target)
+{
+	AgentBitWise abwTemp;
+	int iAgentID = threadIdx.x + blockIdx.x*blockDim.x;
+	curandState localState = paStates[iAgentID];
+
+	abwTemp.asBits.isFemale = (curand_uniform(&localState) > 0.5) ? 0: 1;
+	// printf("%d\n",abwTemp.asBits.isFemale);
+	abwTemp.asBits.vision = curand_uniform(&localState)*3.999f;
+	abwTemp.asBits.metSugar = curand_uniform(&localState)*3.999f;
+	abwTemp.asBits.metSpice = curand_uniform(&localState)*3.999f;
+	abwTemp.asBits.startFertilityAge = curand_uniform(&localState)*3.999f;
+	abwTemp.asBits.endFertilityAge = curand_uniform(&localState)*15.999f;
+	abwTemp.asBits.deathAge = curand_uniform(&localState)*31.999f;
+	abwTemp.asBits.pad = 0;
+	abwTemp.asBits.isLocked = 0;
+	abwTemp.asBits.age = curand_uniform(&localState)*59.999f;
+	
+	target[iAgentID] = abwTemp.asInt;
+	paStates[iAgentID] = localState;
+}
+__global__ void fill_positions(curandState* paStates, short* psaX, short* psaY, short range)
+{
+	int iAgentID = threadIdx.x + blockIdx.x*blockDim.x;
+	curandState localState = paStates[iAgentID];
+
+	psaX[iAgentID] = (curand_uniform(&localState))*(range-0.01f);
+	psaY[iAgentID] = (curand_uniform(&localState))*(range-0.01f);
+
+	paStates[iAgentID] = localState;
+
+//	printf("%d,%d\n",psaX[iAgentID],psaY[iAgentID]);
+}
+
+__global__ void initialize_gridbits(curandState* pgStates, int* target, grid_layout gridCode)
 {
 	int iLoc = threadIdx.x + blockIdx.x*blockDim.x;
-	BitUnpacker buTemp;
-	float fTemp;
-	buTemp.asUInt = pigRandoms[iLoc];
 	short sXRel;
 	short sYRel;
 	short sTileX;
@@ -92,10 +107,12 @@ __global__ void initialize_gridbits(unsigned int* pigRandoms, int* target, grid_
 		}
 	case RANDOM:
 	default:
-		fTemp = buTemp.asBits.b1+2*buTemp.asBits.b2+4*buTemp.asBits.b3+8*buTemp.asBits.b4;
-		gbwBits.asBits.sugar = fTemp*10.0f/15.0f;
-		fTemp = buTemp.asBits.b5+2*buTemp.asBits.b6+4*buTemp.asBits.b7+8*buTemp.asBits.b8;
-		gbwBits.asBits.spice = fTemp*10.0f/15.0f;
+		curandState localState = pgStates[iLoc];
+
+		gbwBits.asBits.sugar = curand_uniform(&localState)*10.0f;
+		gbwBits.asBits.spice = curand_uniform(&localState)*10.0f;
+
+		pgStates[iLoc] = localState;
 	}
 	gbwBits.asBits.maxSugar = gbwBits.asBits.sugar;
 	gbwBits.asBits.maxSpice = gbwBits.asBits.spice;
@@ -103,4 +120,3 @@ __global__ void initialize_gridbits(unsigned int* pigRandoms, int* target, grid_
 
 	target[iLoc] = gbwBits.asInt;
 }
-
