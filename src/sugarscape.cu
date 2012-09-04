@@ -10,77 +10,60 @@
 #include <cuda.h>
 #include <limits.h>
 #include "symbolic_constants.h"
-#include "common_config.h"
-#include "cudpp.h"
 #include "randoms.h"
 #include "harvest.h"
 #include "eat.h"
 #include "age.h"
 #include "exercise_locks.h"
 #include "grow_back1.h"
+#include "rngs.h"
 
 int main (int argc , char* argv [])
 {
 	// use the GTX470
 	cudaSetDevice(0);
 
-    unsigned int seed = 9999;   //constant seed
     unsigned int* piaRandoms;
     unsigned int* pigRandoms;
+    unsigned int* piahTemp;
+    unsigned int* pighTemp;
 
-    //initialize the CUDPP config
-    CUDPPConfiguration config;
-    config.op = CUDPP_ADD;
-    config.datatype = CUDPP_UINT;
-    config.algorithm = CUDPP_RAND_MD5;
-    config.options = 0;
+	// seed rngs
+	SelectStream(0);
+	PutSeed(1234567);
 
-    CUDPPHandle randPlan = 0;
-    CUDPPResult result;
-
-    CUDPPHandle theCudpp;
-    result = cudppCreate(&theCudpp);
-	if(result != CUDPP_SUCCESS)
-	{
-		printf("Error initializing CUDPP Library.\n");
-		return -1;
-	}
-
-	CUDA_CALL(cudaMalloc((void**)&piaRandoms,MAX_AGENTS*sizeof(unsigned int)));
-	CUDA_CALL(cudaMalloc((void**)&pigRandoms,MAX_AGENTS*sizeof(unsigned int)));
-	result = cudppPlan(theCudpp,&randPlan,config,MAX_AGENTS,1,0);
-
-	if (CUDPP_SUCCESS != result)
-        {
-            printf("Error creating CUDPPPlan\n");
-            exit(-1);
-        }
-
-	cudppRandSeed(randPlan, seed);
-	cudppRand(randPlan,piaRandoms,INIT_AGENTS);
-
-// initialize agent properties
-	// setup dimensions
+	// initialize agent properties
 	int hNumBlocks = (INIT_AGENTS+NUM_THREADS_PER_BLOCK-1)/NUM_THREADS_PER_BLOCK;
+	CUDA_CALL(cudaMalloc((void**)&piaRandoms,MAX_AGENTS*sizeof(int)));
 
 	// position in x and y
 	short* psaX;
 	CUDA_CALL(cudaMalloc((void**)&psaX,MAX_AGENTS*sizeof(short)));
 	short* psaY;
 	CUDA_CALL(cudaMalloc((void**)&psaY,MAX_AGENTS*sizeof(short)));
+	CUDA_CALL(cudaHostAlloc((void**)&piahTemp,MAX_AGENTS*sizeof(int),cudaHostAllocDefault));
+	for (int i = 0; i < INIT_AGENTS; i++) {
+		piahTemp[i] = Random()*GRID_SIZE*(GRID_SIZE-0.01);
+	}
+	CUDA_CALL(cudaMemcpy(piaRandoms,piahTemp,INIT_AGENTS*sizeof(int),cudaMemcpyHostToDevice));
 	fill_positions<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(piaRandoms,psaX,psaY);	
 
-	// create agent arrays on device
 	// bit storage
 	int* piaAgentBits;
 	CUDA_CALL(cudaMalloc((void**)&piaAgentBits,MAX_AGENTS*sizeof(int)));
-	cudppRand(randPlan,piaRandoms,INIT_AGENTS);
+	for (int i = 0; i < INIT_AGENTS; i++) {
+		piahTemp[i] = Random()*UINT_MAX;
+	}
+	CUDA_CALL(cudaMemcpy(piaRandoms,piahTemp,INIT_AGENTS*sizeof(int),cudaMemcpyHostToDevice));
 	initialize_agentbits<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(piaRandoms,piaAgentBits);
 	
 	// sugar holdings
 	float* pfaSugar;
 	CUDA_CALL(cudaMalloc((void**)&pfaSugar,MAX_AGENTS*sizeof(float)));
-	cudppRand(randPlan,piaRandoms,INIT_AGENTS);
+	for (int i = 0; i < INIT_AGENTS; i++) {
+		piahTemp[i] = Random()*UINT_MAX;
+	}
+	CUDA_CALL(cudaMemcpy(piaRandoms,piahTemp,INIT_AGENTS*sizeof(int),cudaMemcpyHostToDevice));
 	initialize_food<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(piaRandoms,pfaSugar,30.0f);	
 	float* pfaInitialSugar;
 	CUDA_CALL(cudaMalloc((void**)&pfaInitialSugar,MAX_AGENTS*sizeof(float)));
@@ -89,17 +72,26 @@ int main (int argc , char* argv [])
 	// spice holdings
 	float* pfaSpice;
 	CUDA_CALL(cudaMalloc((void**)&pfaSpice,MAX_AGENTS*sizeof(float)));
-	cudppRand(randPlan,piaRandoms,INIT_AGENTS);
+	for (int i = 0; i < INIT_AGENTS; i++) {
+		piahTemp[i] = Random()*UINT_MAX;
+	}
+	CUDA_CALL(cudaMemcpy(piaRandoms,piahTemp,INIT_AGENTS*sizeof(int),cudaMemcpyHostToDevice));
 	initialize_food<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(piaRandoms,pfaSpice,30.0f);	
 	float* pfaInitialSpice;
 	CUDA_CALL(cudaMalloc((void**)&pfaInitialSpice,MAX_AGENTS*sizeof(float)));
 	CUDA_CALL(cudaMemcpy(pfaInitialSpice,pfaSpice,INIT_AGENTS*sizeof(float),cudaMemcpyDeviceToDevice));
 
-	// create grid on device
+	// initialize grid properties
+	CUDA_CALL(cudaMalloc((void**)&pigRandoms,GRID_SIZE*GRID_SIZE*sizeof(int)));
+
 	// sugar in square
 	int* pigGridBits;
 	CUDA_CALL(cudaMalloc((void**)&pigGridBits,GRID_SIZE*GRID_SIZE*sizeof(int)));
-	cudppRand(randPlan,piaRandoms,GRID_SIZE*GRID_SIZE);
+	CUDA_CALL(cudaHostAlloc((void**)&pighTemp,GRID_SIZE*GRID_SIZE*sizeof(int),cudaHostAllocDefault));
+	for (int i = 0; i < GRID_SIZE*GRID_SIZE; i++) {
+		pighTemp[i] = Random()*UINT_MAX;
+	}
+	CUDA_CALL(cudaMemcpy(pigRandoms,pighTemp,GRID_SIZE*GRID_SIZE*sizeof(int),cudaMemcpyHostToDevice));
 	initialize_gridbits<<<GRID_SIZE,GRID_SIZE>>>(pigRandoms,pigGridBits);
 
 	// current residents in square - initialized to -1's, aka empty
@@ -120,19 +112,24 @@ int main (int argc , char* argv [])
 	CUDA_CALL(cudaMalloc((void**)&piDeferredQueueSize,sizeof(int)));
 	
 	// and its host-side copy
-	int* pihDeferredQueueSize = (int*) malloc(sizeof(int));
+	int* pihDeferredQueueSize;
+	CUDA_CALL(cudaHostAlloc((void**)&pihDeferredQueueSize,sizeof(int),cudaHostAllocDefault));
 
 	// the successful locks counter
 	int* piLockSuccesses;
 	CUDA_CALL(cudaMalloc((void**)&piLockSuccesses,sizeof(int)));
 	
 	// and its host-side copy
-	int* pihLockSuccesses = (int*) malloc(sizeof(int));
-	
+	int* pihLockSuccesses;
+	CUDA_CALL(cudaHostAlloc((void**)&pihLockSuccesses,sizeof(int),cudaHostAllocDefault));
+
 	// the (dynamic) population counter
 	int* piPopulation;
 	CUDA_CALL(cudaMalloc((void**)&piPopulation,sizeof(int)));
-	int* pihPopulation = (int*) malloc(sizeof(int)); 
+
+	// and its host-side copy
+	int* pihPopulation;
+	CUDA_CALL(cudaHostAlloc((void**)&pihPopulation,sizeof(int),cudaHostAllocDefault));
 	pihPopulation[0] = INIT_AGENTS;
 	CUDA_CALL(cudaMemcpy(piPopulation,pihPopulation,sizeof(int),cudaMemcpyHostToDevice));
 
@@ -141,7 +138,8 @@ int main (int argc , char* argv [])
 	CUDA_CALL(cudaMalloc((void**)&piStaticAgents,sizeof(int)));
 	
 	// and its host-side copy
-	int* pihStaticAgents = (int*) malloc(sizeof(int));
+	int* pihStaticAgents;
+	CUDA_CALL(cudaHostAlloc((void**)&pihStaticAgents,sizeof(int),cudaHostAllocDefault));
 	
 	CUDA_CALL(cudaDeviceSynchronize());
 
@@ -149,8 +147,8 @@ int main (int argc , char* argv [])
 	cudaEvent_t start;
 	cudaEvent_t end;
 	float elapsed_time;
-	cudaEventCreate(&start);
-	cudaEventCreate(&end);
+	CUDA_CALL(cudaEventCreate(&start));
+	CUDA_CALL(cudaEventCreate(&end));
 	CUDA_CALL(cudaEventRecord(start,0));
 
 	// count occupancy and store residents
@@ -189,7 +187,10 @@ int main (int argc , char* argv [])
 		// time harvest, meal and aging
 		CUDA_CALL(cudaEventRecord(start,0));
 
-		cudppRand(randPlan,pigRandoms,GRID_SIZE*GRID_SIZE);
+		for (int i = 0; i < GRID_SIZE*GRID_SIZE; i++) {
+			pighTemp[i] = Random()*UINT_MAX;
+		}
+		CUDA_CALL(cudaMemcpy(pigRandoms,pighTemp,GRID_SIZE*GRID_SIZE*sizeof(int),cudaMemcpyHostToDevice));
 		harvest<<<GRID_SIZE,GRID_SIZE>>>(pigRandoms,psaX,pfaSugar,pfaSpice,pigGridBits,pigResidents);
 	
 		eat<<<hNumBlocks,NUM_THREADS_PER_BLOCK>>>(psaX,piaAgentBits,pfaSugar,pfaSpice);
@@ -250,23 +251,13 @@ int main (int argc , char* argv [])
 	CUDA_CALL(cudaFree(piaQueueB));
 	CUDA_CALL(cudaFree(piDeferredQueueSize));
 	CUDA_CALL(cudaFree(piLockSuccesses));
-	free(pihLockSuccesses);
-	free(pihDeferredQueueSize);
-
 	CUDA_CALL(cudaFree(piaRandoms));
 	CUDA_CALL(cudaFree(pigRandoms));
-
-	result = cudppDestroyPlan(randPlan);
-	if (CUDPP_SUCCESS != result) {
-			printf("Error destroying CUDPPPlan\n");
-			exit(-1);
-	}
-	
-	result = cudppDestroy(theCudpp);
-	if (CUDPP_SUCCESS != result) {
-		printf("Error shutting down CUDPP Library.\n");
-		exit(-1);
-	}
+	CUDA_CALL(cudaFreeHost(pihLockSuccesses));
+	CUDA_CALL(cudaFreeHost(pihDeferredQueueSize));
+	CUDA_CALL(cudaFreeHost(pihStaticAgents));
+	CUDA_CALL(cudaFreeHost(piahTemp));
+	CUDA_CALL(cudaFreeHost(pighTemp));
 
 	return EXIT_SUCCESS;
 }
